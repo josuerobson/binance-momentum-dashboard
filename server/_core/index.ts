@@ -11,9 +11,10 @@ import { serveStatic, setupVite } from "./vite";
 async function initDb() {
   const url = process.env.DATABASE_URL;
   if (!url) {
-    console.error("DATABASE_URL is not set — skipping DB init");
+    console.warn("[init-db] DATABASE_URL not set — skipping table creation");
     return;
   }
+  console.log("[init-db] connecting to", url.replace(/:\/\/[^@]+@/, "://***@"));
   const conn = await mysql.createConnection(url);
   try {
     await conn.query(`
@@ -40,14 +41,20 @@ async function initDb() {
         lastSignedIn TIMESTAMP NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
-    console.log("DB tables ready");
+    console.log("[init-db] tables ready");
   } finally {
     await conn.end();
   }
 }
 
 async function startServer() {
-  await initDb();
+  console.log("[server] starting, NODE_ENV=" + process.env.NODE_ENV + " PORT=" + process.env.PORT);
+  try {
+    await initDb();
+  } catch (err) {
+    console.error("[init-db] failed:", err);
+    // Continue booting — the server can still serve the UI even without DB
+  }
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
