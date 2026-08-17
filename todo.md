@@ -48,3 +48,7 @@
 - [ ] Publicar o Dockerfile e executar o deploy final do dashboard no Easypanel.
 - [ ] Diagnosticar se o 404 decorre da falha do `scripts/init-db.mjs`; testar temporariamente o servidor sem a inicialização para isolar o problema.
 - [ ] Corrigir o bind do Express para `0.0.0.0` no container Easypanel e validar o 502 da rota pública.
+- [x] Corrigir o runtime de produção para escutar estritamente em `process.env.PORT` e eliminar fallback automático de porta que pode causar 502 no Easypanel.
+- [ ] Reimplantar o dashboard com a correção de `PORT` e confirmar HTTP 200 em `/login`.
+- [ ] Consultar logs/erro reais do container dashboard após o novo deploy e corrigir a causa remanescente do HTTP 502.
+- [ ] Validar em produção o login local e as páginas protegidas após a recuperação do domínio público.
