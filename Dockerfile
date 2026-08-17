@@ -12,4 +12,4 @@ ENV NODE_ENV=production
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "echo '=== CONTAINER STARTED ===' && node --version && echo 'Starting server...' && node dist/index.js"]
+CMD ["sh", "-c", "echo 'CONTAINER_ALIVE' && while true; do echo 'heartbeat'; sleep 10; done"]
