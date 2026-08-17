@@ -1,4 +1,5 @@
 import "dotenv/config";
+import mysql from "mysql2/promise";
 import express from "express";
 import { createServer } from "http";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
@@ -7,7 +8,46 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 
+async function initDb() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.error("DATABASE_URL is not set — skipping DB init");
+    return;
+  }
+  const conn = await mysql.createConnection(url);
+  try {
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        openId VARCHAR(64) NOT NULL UNIQUE,
+        name TEXT NULL,
+        email VARCHAR(320) NULL,
+        loginMethod VARCHAR(64) NULL,
+        role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
+        createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        lastSignedIn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS dashboardUsers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(64) NOT NULL UNIQUE,
+        passwordHash VARCHAR(255) NOT NULL,
+        role ENUM('admin', 'operator') NOT NULL DEFAULT 'operator',
+        createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        lastSignedIn TIMESTAMP NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log("DB tables ready");
+  } finally {
+    await conn.end();
+  }
+}
+
 async function startServer() {
+  await initDb();
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
