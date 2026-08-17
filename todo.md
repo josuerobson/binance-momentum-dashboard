@@ -38,3 +38,11 @@
 - [ ] Publicar o dashboard no novo serviço Easypanel com build e porta compatíveis.
 - [ ] Configurar secrets server-side do dashboard no Easypanel e validar o domínio final.
 - [ ] Inicializar o schema MySQL do dashboard no primeiro start do serviço Easypanel sem expor credenciais ou apagar dados existentes.
+- [ ] Corrigir ou reconectar o token GitHub configurado no Easypanel; a validação server-side retornou HTTP 401 Bad credentials para o repositório privado do dashboard.
+- [ ] Concluir a instalação do dashboard no serviço `binance/dashboard` após resolver o acesso GitHub global, mantendo o repositório privado.
+- [ ] Tornar temporariamente público o repositório do dashboard, confirmar que não há secrets versionados e sincronizar o serviço Easypanel.
+- [ ] Depois da validação, documentar e executar a reversão do repositório para privado quando autorizada.
+- [ ] Recriar o serviço MySQL vazio do dashboard após falha de rotação e atualizar todas as conexões com credenciais novas.
+- [ ] Se o builder automático continuar falhando sem diagnóstico, testar um Dockerfile Node explícito com build completo e sem secrets hardcoded.
+- [ ] Encerrar a ação Paketo pendente e adicionar Dockerfile Node amd64 completo, sem secrets hardcoded.
+- [ ] Publicar o Dockerfile e executar o deploy final do dashboard no Easypanel.
