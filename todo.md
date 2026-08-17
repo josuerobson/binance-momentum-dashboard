@@ -46,3 +46,5 @@
 - [ ] Se o builder automático continuar falhando sem diagnóstico, testar um Dockerfile Node explícito com build completo e sem secrets hardcoded.
 - [ ] Encerrar a ação Paketo pendente e adicionar Dockerfile Node amd64 completo, sem secrets hardcoded.
 - [ ] Publicar o Dockerfile e executar o deploy final do dashboard no Easypanel.
+- [ ] Diagnosticar se o 404 decorre da falha do `scripts/init-db.mjs`; testar temporariamente o servidor sem a inicialização para isolar o problema.
+- [ ] Corrigir o bind do Express para `0.0.0.0` no container Easypanel e validar o 502 da rota pública.
