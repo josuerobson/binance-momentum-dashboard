@@ -62,6 +62,15 @@ const configSchema = z.object({
   }),
 });
 
+const latencySchema = z.object({
+  rtt_ms: z.number(),
+  binance_server_time_ms: z.number(),
+  local_time_ms: z.number(),
+  clock_diff_ms: z.number(),
+});
+
+export type BotLatency = z.infer<typeof latencySchema>;
+
 type CacheEntry = { value: unknown; expiresAt: number };
 const telemetryCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 2_000;
@@ -115,6 +124,7 @@ export const telemetryRouter = router({
   }),
   signals: protectedProcedure.query(async () => validate(signalsSchema, await readBotJson("/api/signals", "signals", true))),
   config: protectedProcedure.query(async () => validate(configSchema, await readBotJson("/api/config", "config", true))),
+  latency: protectedProcedure.query(async () => validate(latencySchema, await readBotJson("/api/latency", "latency", true))),
 });
 
 export type Snapshot = z.infer<typeof snapshotSchema>;

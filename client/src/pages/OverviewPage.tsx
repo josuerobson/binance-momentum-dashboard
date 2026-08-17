@@ -1,4 +1,4 @@
-import { Activity, CircleAlert, CircleCheck, Gauge, Landmark, TrendingUp, Wallet } from "lucide-react";
+import { Activity, CircleAlert, CircleCheck, Gauge, Landmark, Radio, TrendingUp, Wallet } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { MetricCard } from "@/components/MetricCard";
 import { PageHeader } from "@/components/PageHeader";
@@ -10,20 +10,25 @@ export default function OverviewPage() {
   const { data: snapshot, history, isLoading, error } = useLiveSnapshot();
   const healthQuery = trpc.telemetry.health.useQuery(undefined, { refetchInterval: 3_000, retry: 1 });
   const { data: signals } = trpc.telemetry.signals.useQuery(undefined, { refetchInterval: 5_000, retry: 1 });
+  const { data: latency } = trpc.telemetry.latency.useQuery(undefined, { refetchInterval: 30_000, retry: 1 });
   const pnl = snapshot?.positions.reduce((sum, position) => sum + (position.pnl_usdt ?? 0), 0) ?? 0;
   const rate = snapshot ? (snapshot.request_weight.used_weight / Math.max(snapshot.request_weight.limit, 1)) * 100 : 0;
+  const rtt = latency?.rtt_ms;
+  const latencyTone = rtt == null ? "slate" : rtt < 50 ? "green" : rtt < 150 ? "amber" : "red";
+  const clockDiff = latency?.clock_diff_ms;
   const health = healthQuery.data ?? snapshot?.health;
   const isHealthy = health?.status === "ok" && !health.reconciliation_required;
   return (
     <div className="page-enter">
       <PageHeader title="Centro de comando" description="Acompanhe saldo, exposição, risco e sinais recebidos. Dados atualizados em ciclos de até 3 segundos." action={<div className={`status-chip ${isHealthy ? "status-healthy" : "status-warning"}`}>{isHealthy ? <CircleCheck className="h-3.5 w-3.5" /> : <CircleAlert className="h-3.5 w-3.5" />}{isHealthy ? "BOT OPERACIONAL" : "VERIFICAR BOT"}</div>} />
       {error && <div className="mb-6 rounded-xl border border-rose-400/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-200">{error.message}</div>}
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
         <MetricCard label="Saldo disponível" value={`${formatMoney(snapshot?.balance.usdt_free)} USDT`} detail="saldo livre em carteira" icon={Wallet} />
         <MetricCard label="Posições abertas" value={snapshot?.positions.length ?? "—"} detail={`${snapshot?.symbols.pending.length ?? 0} símbolo(s) em análise`} icon={Landmark} tone="slate" />
         <MetricCard label="P&L em aberto" value={`${pnl >= 0 ? "+" : ""}${formatMoney(pnl)} USDT`} detail={formatPercent(snapshot?.positions.reduce((sum, position) => sum + (position.pnl_pct ?? 0), 0) ?? 0)} icon={TrendingUp} tone={pnl >= 0 ? "green" : "red"} change={pnl} />
         <MetricCard label="Peso de requisições" value={`${formatMoney(rate, 0)}%`} detail={`${snapshot?.request_weight.used_weight ?? 0}/${snapshot?.request_weight.limit ?? 0} por minuto`} icon={Gauge} tone={rate >= 80 ? "amber" : "green"} />
         <MetricCard label="Sinais capturados" value={signals?.count ?? "—"} detail={`cache: ${snapshot?.symbols.cached_count ?? 0} pares`} icon={Activity} tone="amber" />
+        <MetricCard label="Latência Binance" value={rtt != null ? `${rtt} ms` : "—"} detail={clockDiff != null ? `relógio: ${clockDiff >= 0 ? "+" : ""}${clockDiff} ms` : "aguardando…"} icon={Radio} tone={latencyTone} />
       </section>
       <section className="mt-5 grid gap-5 xl:grid-cols-[1.55fr_1fr]">
         <article className="cyber-surface min-h-[320px] p-5 sm:p-6">
