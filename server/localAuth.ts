@@ -17,7 +17,7 @@ const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8;
 export type SessionUser = Pick<DashboardUser, "id" | "username" | "role">;
 
 function jwtSecret() {
-  const value = process.env.JWT_SECRET;
+  const value = process.env.DASHBOARD_JWT_SECRET || process.env.JWT_SECRET;
   if (!value || value.length < 32) {
     throw new Error("JWT_SECRET must be configured with at least 32 characters");
   }

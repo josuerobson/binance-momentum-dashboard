@@ -11,7 +11,7 @@
 - [x] Exibir DRY_RUN exclusivamente como estado informativo e imutável; não implementar controle de dry-run em runtime.
 - [x] Adicionar estados de carregamento, erro, vazio, responsividade e acessibilidade.
 - [x] Criar testes Vitest para autenticação, proteção de rotas, parsing de logs e controles críticos.
-- [ ] Revisar visualmente, executar testes, auditar segurança e documentar variáveis/deploy.
+- [x] Revisar visualmente, executar testes, auditar segurança e documentar variáveis/deploy.
 - [x] Exibir no dashboard os campos de saúde confirmados de `GET /health` usando o proxy server-side implementado.
 - [x] Integrar `GET /api/snapshot`, `GET /api/signals` e `GET /api/config` usando `X-Api-Key` apenas no backend.
 - [x] Remover o controle de dry-run em runtime e exibir o modo somente como estado informativo de segurança.
@@ -29,3 +29,11 @@
 - [x] Criar componentes reutilizáveis de métricas, tabelas, estados e formatos financeiros.
 - [x] Criar as telas de visão geral, posições, ordens, logs, eventos e configuração com polling de 3 segundos quando aplicável.
 - [x] Aplicar tema cyberpunk escuro, responsivo e acessível em toda a aplicação.
+- [x] Validar visualmente com sessão autenticada as páginas overview, posições, ordens, logs, auditoria e configuração. (confirmado pelo usuário e registrado em SECURITY_REVIEW.md)
+- [x] Documentar variáveis de ambiente, publicação, primeiro login e limites de exposição server-side em OPERATIONS.md.
+- [x] Registrar uma revisão de segurança objetiva com evidência de autenticação local, proteção tRPC e ausência de segredos no bundle cliente em SECURITY_REVIEW.md.
+- [x] Corrigir a senha administrativa do primeiro bootstrap para atender ao mínimo de 12 caracteres e validar o login inicial.
+- [x] Usar `DASHBOARD_JWT_SECRET` server-side com pelo menos 32 caracteres e validar a criação da sessão JWT.
+- [ ] Criar serviço separado `dashboard` no projeto `binance` do Easypanel.
+- [ ] Publicar o dashboard no novo serviço Easypanel com build e porta compatíveis.
+- [ ] Configurar secrets server-side do dashboard no Easypanel e validar o domínio final.
