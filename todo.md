@@ -53,3 +53,8 @@
 - [ ] Consultar logs/erro reais do container dashboard após o novo deploy e corrigir a causa remanescente do HTTP 502.
 - [ ] Validar a nova API/token do GitHub no Easypanel e sincronizar o serviço dashboard a partir do repositório autorizado.
 - [ ] Validar em produção o login local e as páginas protegidas após a recuperação do domínio público.
+- [ ] Analisar e preservar os logs combinados do serviço `binance/dashboard` fornecidos pelo usuário para identificar a falha de startup.
+- [ ] Corrigir o serviço parado no Easypanel com base na causa comprovada pelos logs e validar o domínio público.
+- [ ] Testar build Nixpacks explícito com install, build e start definidos, caso o Dockerfile continue falhando no Easypanel.
+- [ ] Corrigir a ausência de estratégia de construção selecionada no serviço dashboard do Easypanel.
+- [ ] Fixar Node 22 no package.json para impedir que Nixpacks use Node 18 incompatível com o runtime do dashboard.
