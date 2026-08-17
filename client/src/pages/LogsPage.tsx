@@ -1,0 +1,16 @@
+import { useEffect, useRef, useState } from "react";
+import { FileSearch, Pause, Play } from "lucide-react";
+import { PageHeader } from "@/components/PageHeader";
+import { formatDateTime } from "@/lib/format";
+import { trpc } from "@/lib/trpc";
+
+const levels = ["", "INFO", "WARN", "ERROR", "CRITICAL"] as const;
+export default function LogsPage() {
+  const [level, setLevel] = useState<(typeof levels)[number]>("");
+  const [search, setSearch] = useState("");
+  const [autoScroll, setAutoScroll] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const logs = trpc.logs.list.useQuery({ level: level || undefined, search: search || undefined, limit: 150 }, { refetchInterval: 3_000, retry: 1 });
+  useEffect(() => { if (autoScroll && scrollRef.current) scrollRef.current.scrollTop = 0; }, [autoScroll, logs.dataUpdatedAt]);
+  return <div className="page-enter"><PageHeader title="Fluxo de logs" description="Consulta server-side do log combinado. Use filtros para priorizar falhas e alertas sem expor a origem no navegador." action={<button type="button" onClick={() => setAutoScroll(current => !current)} className="status-chip status-neutral">{autoScroll ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}{autoScroll ? "AUTO-SCROLL" : "PAUSADO"}</button>} /><section className="cyber-surface overflow-hidden"><div className="flex flex-col gap-3 border-b border-white/[0.07] p-4 sm:flex-row"><label className="sr-only" htmlFor="search-logs">Buscar logs</label><input id="search-logs" value={search} onChange={event => setSearch(event.target.value)} placeholder="Buscar mensagem…" className="h-10 flex-1 rounded-lg border border-white/10 bg-black/20 px-3 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-[#00ff88]/50" /><label className="sr-only" htmlFor="log-level">Nível</label><select id="log-level" value={level} onChange={event => setLevel(event.target.value as (typeof levels)[number])} className="h-10 rounded-lg border border-white/10 bg-black/20 px-3 text-sm text-foreground outline-none focus:border-[#00ff88]/50">{levels.map(item => <option value={item} key={item}>{item || "Todos os níveis"}</option>)}</select></div><div className="max-h-[62vh] overflow-auto" ref={scrollRef}>{logs.error && <p className="p-5 text-sm text-rose-300">{logs.error.message}</p>}{logs.data?.entries.map(entry => <article className="grid grid-cols-[auto_1fr] gap-x-3 border-b border-white/[0.05] px-4 py-3 font-mono text-xs hover:bg-white/[0.025]" key={entry.id}><span className={`mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold ${entry.level === "ERROR" || entry.level === "CRITICAL" ? "bg-rose-400/15 text-rose-300" : entry.level === "WARN" ? "bg-[#f59e0b]/15 text-[#fbbf24]" : "bg-[#00ff88]/10 text-[#00ff88]"}`}>{entry.level}</span><div><p className="break-words leading-5 text-slate-200">{entry.message}</p><p className="mt-1 text-[10px] text-muted-foreground">{formatDateTime(entry.timestamp)} · {entry.source}</p></div></article>)}{!logs.isLoading && !logs.data?.entries.length && <div className="grid min-h-52 place-items-center text-sm text-muted-foreground"><FileSearch className="mb-2 h-5 w-5" />Nenhum log para os filtros selecionados.</div>}</div></section></div>;
+}

@@ -1,0 +1,31 @@
+# Project TODO
+
+- [x] Registrar que os logs são consumidos exclusivamente server-side e validar o comportamento de CORS apenas quando necessário no navegador.
+- [x] Implementar no cliente a estratégia de atualização em tempo real com polling de 3 segundos para health e snapshot.
+- [x] Implementar autenticação local por usuário e senha com hash seguro e sessão JWT.
+- [x] Manter no banco apenas os usuários locais; consumir snapshots, logs e eventos em tempo real sem persistir dados operacionais desnecessários.
+- [x] Implementar APIs protegidas para dashboard, logs, saúde, posições, ordens, gráficos e auditoria.
+- [x] Criar coleta server-side segura de logs e telemetria do bot, sem expor URLs ou segredos no cliente.
+- [x] Construir dashboard dark cyberpunk com sidebar, cards em tempo real, tabelas e gráficos.
+- [x] Criar páginas de posições, histórico de ordens, logs, auditoria e configurações.
+- [x] Exibir DRY_RUN exclusivamente como estado informativo e imutável; não implementar controle de dry-run em runtime.
+- [x] Adicionar estados de carregamento, erro, vazio, responsividade e acessibilidade.
+- [x] Criar testes Vitest para autenticação, proteção de rotas, parsing de logs e controles críticos.
+- [ ] Revisar visualmente, executar testes, auditar segurança e documentar variáveis/deploy.
+- [x] Exibir no dashboard os campos de saúde confirmados de `GET /health` usando o proxy server-side implementado.
+- [x] Integrar `GET /api/snapshot`, `GET /api/signals` e `GET /api/config` usando `X-Api-Key` apenas no backend.
+- [x] Remover o controle de dry-run em runtime e exibir o modo somente como estado informativo de segurança.
+- [x] Criar bootstrap do primeiro administrador a partir de `DASHBOARD_ADMIN_PASSWORD`, sem credenciais hardcoded.
+- [x] Configurar `DASHBOARD_API_KEY`, URLs do bot e senha inicial exclusivamente como secrets de deploy.
+- [x] Publicar a extensão de telemetria do bot e solicitar confirmação explícita antes de acionar o deploy manual fornecido.
+- [x] Integrar a API do Easypanel por credencial server-side com escopo mínimo para status operacional essencial.
+- [x] Migrar a extensão de telemetria para a origem autorizada efetiva do serviço bot.
+- [x] Obter autorização de publicação no repositório de produção ou confirmar a troca de origem do serviço bot para um repositório com acesso disponível.
+- [x] Atualizar a origem autorizada do serviço bot para `josuerobson/binance-momentum`, executar deploy e validar os endpoints de telemetria em produção.
+- [x] Implementar procedimentos tRPC protegidos para snapshot, sinais, configuração e health, com cache breve e erros tipados.
+- [x] Implementar procedimento tRPC protegido para consulta server-side de logs, normalização e filtros de nível/texto.
+- [x] Implementar procedimento tRPC protegido para status essencial do Easypanel, sem expor credenciais.
+- [x] Criar rota de login local, guarda de sessão e navegação por páginas no cliente.
+- [x] Criar componentes reutilizáveis de métricas, tabelas, estados e formatos financeiros.
+- [x] Criar as telas de visão geral, posições, ordens, logs, eventos e configuração com polling de 3 segundos quando aplicável.
+- [x] Aplicar tema cyberpunk escuro, responsivo e acessível em toda a aplicação.

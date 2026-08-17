@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { dashboardUsers, InsertDashboardUser, InsertUser, users } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,35 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function getDashboardUserByUsername(username: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select()
+    .from(dashboardUsers)
+    .where(eq(dashboardUsers.username, username))
+    .limit(1);
+  return result[0];
+}
+
+export async function getAnyDashboardUser() {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(dashboardUsers).limit(1);
+  return result[0];
+}
+
+export async function createDashboardUser(user: InsertDashboardUser) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.insert(dashboardUsers).values(user);
+}
+
+export async function touchDashboardUserSignIn(id: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(dashboardUsers)
+    .set({ lastSignedIn: new Date() })
+    .where(eq(dashboardUsers.id, id));
+}

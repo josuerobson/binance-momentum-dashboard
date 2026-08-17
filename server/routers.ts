@@ -1,6 +1,10 @@
-import { COOKIE_NAME } from "@shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
+import { bootstrapDashboardAdmin, clearSessionCookie, createSessionToken, loginDashboardUser, setSessionCookie } from "./localAuth";
+import { easypanelRouter } from "./routers/easypanel";
+import { logsRouter } from "./routers/logs";
+import { telemetryRouter } from "./routers/telemetry";
 import { publicProcedure, router } from "./_core/trpc";
 
 export const appRouter = router({
@@ -8,14 +12,29 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    bootstrap: publicProcedure.mutation(async () => {
+      const result = await bootstrapDashboardAdmin();
+      return { created: result.created, username: result.user.username };
+    }),
+    login: publicProcedure
+      .input(z.object({ username: z.string().trim().min(1).max(64), password: z.string().min(1).max(512) }))
+      .mutation(async ({ ctx, input }) => {
+        const user = await loginDashboardUser(input.username, input.password);
+        if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "Usuário ou senha inválidos" });
+        const token = await createSessionToken(user);
+        setSessionCookie(ctx.res, ctx.req, token);
+        return { id: user.id, username: user.username, role: user.role };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      clearSessionCookie(ctx.res, ctx.req);
       return {
         success: true,
       } as const;
     }),
   }),
+  telemetry: telemetryRouter,
+  logs: logsRouter,
+  infrastructure: easypanelRouter,
 
   // TODO: add feature routers here, e.g.
   // todo: router({
