@@ -37,3 +37,4 @@
 - [ ] Criar serviço separado `dashboard` no projeto `binance` do Easypanel.
 - [ ] Publicar o dashboard no novo serviço Easypanel com build e porta compatíveis.
 - [ ] Configurar secrets server-side do dashboard no Easypanel e validar o domínio final.
+- [ ] Inicializar o schema MySQL do dashboard no primeiro start do serviço Easypanel sem expor credenciais ou apagar dados existentes.
