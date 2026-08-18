@@ -101,7 +101,7 @@ Return ONLY a raw JSON object (no markdown, no backticks, no explanation outside
 // ─── DB operations ────────────────────────────────────────────────────────────
 
 async function ensureTable() {
-  await getPool().execute(`
+  await getPool().query(`
     CREATE TABLE IF NOT EXISTS ai_prompts (
       id VARCHAR(100) PRIMARY KEY,
       label VARCHAR(200) NOT NULL,
@@ -118,14 +118,14 @@ export async function getPrompt(id: string): Promise<string> {
   const def = PROMPT_DEFAULTS[id];
   if (!def) throw new Error(`Unknown prompt id: ${id}`);
 
-  const [rows] = await getPool().execute(`SELECT content FROM ai_prompts WHERE id = ?`, [id]);
+  const [rows] = await getPool().query(`SELECT content FROM ai_prompts WHERE id = ?`, [id]);
   const row = (rows as { content: string }[])[0];
   return row?.content ?? def.content;
 }
 
 export async function listPrompts(): Promise<PromptRecord[]> {
   await ensureTable();
-  const [rows] = await getPool().execute(`SELECT * FROM ai_prompts`);
+  const [rows] = await getPool().query(`SELECT * FROM ai_prompts`);
   const dbMap = new Map((rows as PromptRecord[]).map(r => [r.id, r]));
 
   return Object.entries(PROMPT_DEFAULTS).map(([id, def]) => {
@@ -146,7 +146,7 @@ export async function setPrompt(id: string, content: string): Promise<void> {
   const def = PROMPT_DEFAULTS[id];
   if (!def) throw new Error(`Unknown prompt id: ${id}`);
 
-  await getPool().execute(
+  await getPool().query(
     `INSERT INTO ai_prompts (id, label, description, content, default_content)
      VALUES (?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE content = VALUES(content), updated_at = NOW()`,
@@ -156,5 +156,5 @@ export async function setPrompt(id: string, content: string): Promise<void> {
 
 export async function resetPrompt(id: string): Promise<void> {
   await ensureTable();
-  await getPool().execute(`DELETE FROM ai_prompts WHERE id = ?`, [id]);
+  await getPool().query(`DELETE FROM ai_prompts WHERE id = ?`, [id]);
 }
