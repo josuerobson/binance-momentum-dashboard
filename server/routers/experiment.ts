@@ -16,11 +16,7 @@ async function fetchBot<T>(path: string, opts?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${ENV.botApiBaseUrl.replace(/\/$/, "")}${path}`, {
       ...opts,
-      headers: {
-        "X-Api-Key": ENV.dashboardApiKey,
-        "Content-Type": "application/json",
-        ...(opts?.headers ?? {}),
-      },
+      headers: { "X-Api-Key": ENV.dashboardApiKey, "Content-Type": "application/json", ...(opts?.headers ?? {}) },
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
@@ -43,12 +39,6 @@ export const experimentRouter = router({
         currentCycleId: orch.currentCycleId,
         cycleStartedAt: orch.cycleStartedAt,
         lastError: orch.lastError,
-        providers: {
-          claudeEnabled: orch.providers.claudeEnabled,
-          mimoEnabled: orch.providers.mimoEnabled,
-          geminiEnabled: orch.providers.geminiEnabled,
-          // Never expose API keys to client
-        },
         minTradesPerSlot: orch.minTradesPerSlot,
         maxDurationMs: orch.maxDurationMs,
       },
@@ -65,38 +55,21 @@ export const experimentRouter = router({
 
   configure: protectedProcedure
     .input(z.object({
-      claudeEnabled: z.boolean().optional(),
-      mimoEnabled: z.boolean().optional(),
-      mimoApiKey: z.string().max(256).optional(),
-      geminiEnabled: z.boolean().optional(),
-      geminiApiKey: z.string().max(256).optional(),
       minTradesPerSlot: z.number().int().min(3).max(50).optional(),
       maxDurationMin: z.number().int().min(5).max(120).optional(),
     }))
     .mutation(({ input }) => {
-      orchestrator.configure(
-        {
-          claudeEnabled: input.claudeEnabled,
-          mimoEnabled: input.mimoEnabled,
-          mimoApiKey: input.mimoApiKey,
-          geminiEnabled: input.geminiEnabled,
-          geminiApiKey: input.geminiApiKey,
-        },
-        input.minTradesPerSlot,
-        input.maxDurationMin,
-      );
+      orchestrator.configure(input.minTradesPerSlot, input.maxDurationMin);
       return { ok: true };
     }),
 
   startCycle: protectedProcedure.mutation(async () => {
     requireBot();
-    const orch = orchestrator.getState();
-    if (orch.running) {
+    if (orchestrator.getState().running) {
       throw new TRPCError({ code: "CONFLICT", message: "Ciclo já está em andamento." });
     }
     try {
-      const result = await orchestrator.startCycle();
-      return result;
+      return await orchestrator.startCycle();
     } catch (e) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
     }
@@ -110,11 +83,8 @@ export const experimentRouter = router({
   setAutoMode: protectedProcedure
     .input(z.object({ enabled: z.boolean() }))
     .mutation(({ input }) => {
-      if (input.enabled) {
-        orchestrator.startAutoMode();
-      } else {
-        orchestrator.stopAutoMode();
-      }
+      if (input.enabled) orchestrator.startAutoMode();
+      else orchestrator.stopAutoMode();
       return { ok: true, autoMode: input.enabled };
     }),
 

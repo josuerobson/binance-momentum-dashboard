@@ -1,13 +1,6 @@
 import { ENV } from "../_core/env";
-import { askClaude, askGemini, askMimo, ExperimentCycleSummary, SlotConfig } from "./aiAdvisors";
-
-export type ProviderConfig = {
-  claudeEnabled: boolean;
-  mimoEnabled: boolean;
-  mimoApiKey: string;
-  geminiEnabled: boolean;
-  geminiApiKey: string;
-};
+import { ExperimentCycleSummary, SlotConfig } from "./aiAdvisors";
+import { AIProvider, getAssignedProviders, callProvider } from "./aiRegistry";
 
 export type SlotStatus = {
   id: number;
@@ -40,7 +33,6 @@ export type OrchestratorState = {
   cycleStartedAt: number | null;
   history: ExperimentCycleSummary[];
   lastError: string | null;
-  providers: ProviderConfig;
   minTradesPerSlot: number;
   maxDurationMs: number;
 };
@@ -58,6 +50,75 @@ async function fetchBot<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// ─── AI advisor system prompt ────────────────────────────────────────────────
+
+const ADVISOR_SYSTEM = `You are an expert algorithmic trading parameter optimizer for a momentum scanner bot on Binance mainnet.
+You receive the history of paper trading experiments (parallel A/B tests with different configs) and suggest the next optimal config.
+Each config must balance signal quality (momentum threshold), risk management (stop/take-profit), and capital efficiency.
+Return ONLY a raw JSON object (no markdown, no backticks, no explanation outside JSON).`;
+
+const CONFIG_SCHEMA = `{
+  "momentum_trigger_pct": <float 1.5-6.0>,
+  "momentum_window_secs": <int 30-600>,
+  "volume_surge_multiplier": <float 1.2-5.0>,
+  "stop_loss_pct": <float 0.5-4.0>,
+  "take_profit_pct": <float 1.0-15.0>,
+  "position_size_pct": <float 2.0-20.0>,
+  "max_positions": <int 1-5>,
+  "trailing_stop_enabled": <boolean>,
+  "trailing_stop_distance_pct": <float 0.5-5.0>,
+  "btc_filter_enabled": <boolean>,
+  "btc_filter_window_secs": <int 60-600>,
+  "btc_min_momentum_pct": <float -3.0-0.0>,
+  "paper_balance": 10000,
+  "max_spread_pct": 0.5,
+  "min_24h_volume_usdt": 5000000,
+  "reasoning": "<2-3 sentences explaining why>"
+}`;
+
+function buildPrompt(history: ExperimentCycleSummary[]): string {
+  const historyText = history.length === 0
+    ? "No experiments yet. Use reasonable starting parameters."
+    : `Past cycles (newest first):\n${JSON.stringify(history.slice(-5), null, 2)}`;
+  return `${historyText}\n\nSuggest the next parameter set. Optimize for fitness_score = win_rate × avg_pnl / max_drawdown. Return only:\n${CONFIG_SCHEMA}`;
+}
+
+function parseConfig(text: string): SlotConfig | null {
+  try {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    const p = JSON.parse(match[0]);
+    if (typeof p.momentum_trigger_pct !== "number") return null;
+    return {
+      momentum_trigger_pct: Math.min(6, Math.max(1.5, p.momentum_trigger_pct ?? 2.5)),
+      momentum_window_secs: Math.min(600, Math.max(30, Math.round(p.momentum_window_secs ?? 120))),
+      volume_surge_multiplier: Math.min(5, Math.max(1.2, p.volume_surge_multiplier ?? 2.0)),
+      stop_loss_pct: Math.min(4, Math.max(0.5, p.stop_loss_pct ?? 1.5)),
+      take_profit_pct: Math.min(15, Math.max(1, p.take_profit_pct ?? 3.0)),
+      position_size_pct: Math.min(20, Math.max(2, p.position_size_pct ?? 10)),
+      max_positions: Math.min(5, Math.max(1, Math.round(p.max_positions ?? 3))),
+      trailing_stop_enabled: p.trailing_stop_enabled !== false,
+      trailing_stop_distance_pct: Math.min(5, Math.max(0.5, p.trailing_stop_distance_pct ?? 1.5)),
+      btc_filter_enabled: p.btc_filter_enabled !== false,
+      btc_filter_window_secs: Math.min(600, Math.max(60, Math.round(p.btc_filter_window_secs ?? 300))),
+      btc_min_momentum_pct: Math.min(0, Math.max(-3, p.btc_min_momentum_pct ?? 0)),
+      paper_balance: 10000,
+      max_spread_pct: 0.5,
+      min_24h_volume_usdt: 5_000_000,
+      reasoning: String(p.reasoning ?? ""),
+    };
+  } catch { return null; }
+}
+
+async function askProvider(provider: AIProvider, history: ExperimentCycleSummary[]): Promise<SlotConfig | null> {
+  try {
+    const text = await callProvider(provider, [{ role: "user", content: buildPrompt(history) }], ADVISOR_SYSTEM, 1024);
+    return parseConfig(text);
+  } catch { return null; }
+}
+
+// ─── Orchestrator ─────────────────────────────────────────────────────────────
+
 class ExperimentOrchestrator {
   private state: OrchestratorState = {
     running: false,
@@ -67,47 +128,37 @@ class ExperimentOrchestrator {
     cycleStartedAt: null,
     history: [],
     lastError: null,
-    providers: {
-      claudeEnabled: true,
-      mimoEnabled: false,
-      mimoApiKey: "",
-      geminiEnabled: false,
-      geminiApiKey: "",
-    },
     minTradesPerSlot: 8,
     maxDurationMs: 25 * 60 * 1000,
   };
 
   getState(): OrchestratorState { return { ...this.state }; }
 
-  configure(providers: Partial<ProviderConfig>, minTrades?: number, maxDurationMin?: number) {
-    this.state.providers = { ...this.state.providers, ...providers };
+  configure(minTrades?: number, maxDurationMin?: number) {
     if (minTrades) this.state.minTradesPerSlot = Math.max(3, minTrades);
     if (maxDurationMin) this.state.maxDurationMs = Math.max(5, maxDurationMin) * 60 * 1000;
   }
 
   async getSuggestions(): Promise<{ label: string; provider: string; config: SlotConfig }[]> {
     const history = this.state.history;
-    const results: { label: string; provider: string; config: SlotConfig }[] = [];
+    let providers: AIProvider[] = [];
+    try {
+      providers = await getAssignedProviders("experiment_advisor");
+    } catch { /* DB not ready */ }
 
-    const { claudeEnabled, mimoEnabled, mimoApiKey, geminiEnabled, geminiApiKey } = this.state.providers;
-
-    const [claudeConfig, mimoConfig, geminiConfig] = await Promise.all([
-      claudeEnabled ? askClaude(history) : Promise.resolve(null),
-      mimoEnabled && mimoApiKey ? askMimo(mimoApiKey, history) : Promise.resolve(null),
-      geminiEnabled && geminiApiKey ? askGemini(geminiApiKey, history) : Promise.resolve(null),
-    ]);
-
-    if (claudeConfig) results.push({ label: "Claude", provider: "claude", config: claudeConfig });
-    if (mimoConfig) results.push({ label: "MIMO", provider: "mimo", config: mimoConfig });
-    if (geminiConfig) results.push({ label: "Gemini", provider: "gemini", config: geminiConfig });
-
-    // If no AI produced a config, use sensible defaults
-    if (results.length === 0) {
-      results.push({ label: "Default", provider: "default", config: defaultConfig() });
+    if (providers.length === 0) {
+      return [{ label: "Default", provider: "default", config: defaultConfig() }];
     }
 
-    return results;
+    const results = await Promise.all(providers.map(p => askProvider(p, history)));
+    const suggestions = providers
+      .map((p, i) => results[i] ? { label: p.name, provider: p.name, config: results[i]! } : null)
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+
+    if (suggestions.length === 0) {
+      return [{ label: "Default", provider: "default", config: defaultConfig() }];
+    }
+    return suggestions;
   }
 
   async startCycle(): Promise<{ cycleId: number; slots: number }> {
@@ -125,12 +176,7 @@ class ExperimentOrchestrator {
 
     const payload = {
       balance: 10000,
-      slots: suggestions.map((s, i) => ({
-        id: i,
-        label: s.label,
-        ai_provider: s.provider,
-        config: s.config,
-      })),
+      slots: suggestions.map((s, i) => ({ id: i, label: s.label, ai_provider: s.provider, config: s.config })),
     };
 
     const result = await fetchBot<{ cycle_id: number }>("/api/experiment/start", {
@@ -168,7 +214,6 @@ class ExperimentOrchestrator {
         })),
       };
       this.state.history.push(cycle);
-      // Keep only last 100 cycles in memory
       if (this.state.history.length > 100) this.state.history.shift();
 
       this.state.phase = "idle";
@@ -188,17 +233,15 @@ class ExperimentOrchestrator {
       try {
         await this.startCycle();
         const deadline = Date.now() + this.state.maxDurationMs;
-
         while (Date.now() < deadline && this.state.autoMode) {
           await sleep(30_000);
           try {
             const status = await fetchBot<ExperimentStatus>("/api/experiment/status");
-            const minReached = status.slots.length > 0 &&
+            const done = status.slots.length > 0 &&
               status.slots.every(s => s.trade_count >= this.state.minTradesPerSlot);
-            if (minReached) break;
+            if (done) break;
           } catch { /* ignore polling errors */ }
         }
-
         await this.stopCycle();
       } catch (e) {
         this.state.lastError = String(e);
@@ -214,15 +257,10 @@ class ExperimentOrchestrator {
   startAutoMode() {
     if (this.state.autoMode) return;
     this.state.autoMode = true;
-    this.runAutoLoop().catch(e => {
-      this.state.lastError = String(e);
-      this.state.autoMode = false;
-    });
+    this.runAutoLoop().catch(e => { this.state.lastError = String(e); this.state.autoMode = false; });
   }
 
-  stopAutoMode() {
-    this.state.autoMode = false;
-  }
+  stopAutoMode() { this.state.autoMode = false; }
 
   getBestConfig(): { config: SlotConfig; fitness: number; provider: string } | null {
     let best: { config: SlotConfig; fitness: number; provider: string } | null = null;
@@ -239,21 +277,12 @@ class ExperimentOrchestrator {
 
 function defaultConfig(): SlotConfig {
   return {
-    momentum_trigger_pct: 2.5,
-    momentum_window_secs: 120,
-    volume_surge_multiplier: 2.0,
-    stop_loss_pct: 1.5,
-    take_profit_pct: 3.0,
-    position_size_pct: 10,
-    max_positions: 3,
-    trailing_stop_enabled: true,
-    trailing_stop_distance_pct: 1.5,
-    btc_filter_enabled: true,
-    btc_filter_window_secs: 300,
-    btc_min_momentum_pct: 0,
-    paper_balance: 10000,
-    max_spread_pct: 0.5,
-    min_24h_volume_usdt: 5_000_000,
+    momentum_trigger_pct: 2.5, momentum_window_secs: 120,
+    volume_surge_multiplier: 2.0, stop_loss_pct: 1.5, take_profit_pct: 3.0,
+    position_size_pct: 10, max_positions: 3, trailing_stop_enabled: true,
+    trailing_stop_distance_pct: 1.5, btc_filter_enabled: true,
+    btc_filter_window_secs: 300, btc_min_momentum_pct: 0,
+    paper_balance: 10000, max_spread_pct: 0.5, min_24h_volume_usdt: 5_000_000,
     reasoning: "Default starting configuration",
   };
 }

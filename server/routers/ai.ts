@@ -2,6 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
+import { callProvider, getAssignedProviders } from "../services/aiRegistry";
 import type { PaperTrade } from "./paper";
 
 const suggestedConfigSchema = z.object({
@@ -83,48 +84,39 @@ export const aiRouter = router({
       currentConfig: z.any(),
     }))
     .mutation(async ({ input }) => {
-      if (!ENV.anthropicApiKey) {
+      // Try registry-assigned provider first, fall back to ENV key
+      const assigned = await getAssignedProviders("market_analysis").catch(() => []);
+      const provider = assigned[0] ?? null;
+
+      if (!provider && !ENV.anthropicApiKey) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "ANTHROPIC_API_KEY não configurada no servidor.",
+          message: "Nenhum provedor de IA configurado para Análise de Mercado. Configure em Integração IA.",
         });
       }
 
       const trades = input.trades as PaperTrade[];
       const prompt = buildPrompt(trades, input.currentConfig);
 
-      let res: Response;
+      let text: string;
       try {
-        res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": ENV.anthropicApiKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 2048,
-            messages: [{ role: "user", content: prompt }],
-          }),
-          signal: AbortSignal.timeout(60_000),
-        });
-      } catch {
-        throw new TRPCError({ code: "BAD_GATEWAY", message: "Não foi possível alcançar a API de IA." });
+        if (provider) {
+          text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 2048);
+        } else {
+          // Legacy ENV fallback
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-api-key": ENV.anthropicApiKey, "anthropic-version": "2023-06-01" },
+            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 2048, messages: [{ role: "user", content: prompt }] }),
+            signal: AbortSignal.timeout(60_000),
+          });
+          if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => "")}`);
+          const data = await res.json() as { content?: { type: string; text?: string }[] };
+          text = data.content?.find(b => b.type === "text")?.text ?? "";
+        }
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_GATEWAY", message: `Erro na API de IA: ${String(e).slice(0, 200)}` });
       }
-
-      if (!res.ok) {
-        const err = await res.text().catch(() => "");
-        throw new TRPCError({
-          code: "BAD_GATEWAY",
-          message: `API de IA retornou erro ${res.status}: ${err.slice(0, 200)}`,
-        });
-      }
-
-      const apiResponse = await res.json() as {
-        content?: Array<{ type: string; text?: string }>;
-      };
-      const text = apiResponse.content?.find(b => b.type === "text")?.text ?? "";
 
       let parsed: { analysis: string; suggested_config: SuggestedConfig; rationale: string };
       try {
