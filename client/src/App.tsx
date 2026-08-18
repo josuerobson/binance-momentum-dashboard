@@ -12,6 +12,7 @@ import LogsPage from "@/pages/LogsPage";
 import OrdersPage from "@/pages/OrdersPage";
 import OverviewPage from "@/pages/OverviewPage";
 import PaperTradingPage from "@/pages/PaperTradingPage";
+import ScannerPage from "@/pages/ScannerPage";
 import PositionsPage from "@/pages/PositionsPage";
 import { Redirect, Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/" component={() => <ProtectedView><OverviewPage /></ProtectedView>} />
       <Route path="/positions" component={() => <ProtectedView><PositionsPage /></ProtectedView>} />
       <Route path="/orders" component={() => <ProtectedView><OrdersPage /></ProtectedView>} />
+      <Route path="/scanner" component={() => <ProtectedView><ScannerPage /></ProtectedView>} />
       <Route path="/paper" component={() => <ProtectedView><PaperTradingPage /></ProtectedView>} />
       <Route path="/ai" component={() => <ProtectedView><AIAnalysisPage /></ProtectedView>} />
       <Route path="/logs" component={() => <ProtectedView><LogsPage /></ProtectedView>} />

@@ -6,6 +6,7 @@ import { aiRouter } from "./routers/ai";
 import { easypanelRouter } from "./routers/easypanel";
 import { logsRouter } from "./routers/logs";
 import { paperRouter } from "./routers/paper";
+import { scannerRouter } from "./routers/scanner";
 import { telemetryRouter } from "./routers/telemetry";
 import { publicProcedure, router } from "./_core/trpc";
 
@@ -39,6 +40,7 @@ export const appRouter = router({
   infrastructure: easypanelRouter,
   paper: paperRouter,
   ai: aiRouter,
+  scanner: scannerRouter,
 });
 
 export type AppRouter = typeof appRouter;
