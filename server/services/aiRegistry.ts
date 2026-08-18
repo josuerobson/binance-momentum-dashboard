@@ -225,7 +225,7 @@ export async function callProvider(
         method: "POST",
         headers: { "x-api-key": provider.apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(50_000),
       });
       if (!res.ok) throw new Error(`Claude ${res.status}: ${await res.text().catch(() => "")}`);
       const data = await res.json() as { content?: { text?: string }[] };
@@ -240,7 +240,7 @@ export async function callProvider(
         method: "POST",
         headers: { "Authorization": `Bearer ${provider.apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model: provider.model, max_tokens: maxTokens, temperature: 0.3, messages: msgs }),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(50_000),
       });
       if (!res.ok) throw new Error(`OpenAI ${res.status}: ${await res.text().catch(() => "")}`);
       const data = await res.json() as { choices?: { message?: { content?: string } }[] };
@@ -257,7 +257,7 @@ export async function callProvider(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(60_000),
+        signal: AbortSignal.timeout(50_000),
       });
       if (!res.ok) throw new Error(`Gemini ${res.status}: ${await res.text().catch(() => "")}`);
       const data = await res.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
