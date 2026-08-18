@@ -41,6 +41,28 @@ async function initDb() {
         lastSignedIn TIMESTAMP NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS paper_trades (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        symbol VARCHAR(20) NOT NULL,
+        entry_price DOUBLE NOT NULL,
+        exit_price DOUBLE NOT NULL,
+        quantity DOUBLE NOT NULL,
+        virtual_usdt DOUBLE NOT NULL,
+        pnl_usdt DOUBLE NOT NULL,
+        pnl_pct DOUBLE NOT NULL,
+        exit_reason VARCHAR(10) NOT NULL,
+        opened_at BIGINT NOT NULL,
+        closed_at BIGINT NOT NULL,
+        duration_ms BIGINT NOT NULL,
+        stop_loss_pct DOUBLE NOT NULL DEFAULT 0,
+        take_profit_pct DOUBLE NOT NULL DEFAULT 0,
+        momentum_trigger_pct DOUBLE NOT NULL DEFAULT 0,
+        momentum_window_secs INT NOT NULL DEFAULT 0,
+        volume_surge_multiplier DOUBLE NOT NULL DEFAULT 0,
+        UNIQUE KEY uk_paper_trade (symbol, opened_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
     console.log("[init-db] tables ready");
   } finally {
     await conn.end();

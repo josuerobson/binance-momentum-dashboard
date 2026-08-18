@@ -2,8 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { bootstrapDashboardAdmin, clearSessionCookie, createSessionToken, loginDashboardUser, setSessionCookie } from "./localAuth";
+import { aiRouter } from "./routers/ai";
 import { easypanelRouter } from "./routers/easypanel";
 import { logsRouter } from "./routers/logs";
+import { paperRouter } from "./routers/paper";
 import { telemetryRouter } from "./routers/telemetry";
 import { publicProcedure, router } from "./_core/trpc";
 
@@ -35,13 +37,8 @@ export const appRouter = router({
   telemetry: telemetryRouter,
   logs: logsRouter,
   infrastructure: easypanelRouter,
-
-  // TODO: add feature routers here, e.g.
-  // todo: router({
-  //   list: protectedProcedure.query(({ ctx }) =>
-  //     db.getUserTodos(ctx.user.id)
-  //   ),
-  // }),
+  paper: paperRouter,
+  ai: aiRouter,
 });
 
 export type AppRouter = typeof appRouter;

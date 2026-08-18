@@ -12,4 +12,5 @@ export const ENV = {
   dashboardApiKey: process.env.DASHBOARD_API_KEY ?? "",
   easypanelBaseUrl: process.env.EASYPANEL_BASE_URL ?? "",
   easypanelApiKey: process.env.EASYPANEL_API_KEY ?? "",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
 };

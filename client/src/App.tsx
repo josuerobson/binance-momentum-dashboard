@@ -4,12 +4,14 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { DashboardLayoutSkeleton } from "@/components/DashboardLayoutSkeleton";
 import { useAuth } from "@/_core/hooks/useAuth";
 import NotFound from "@/pages/NotFound";
+import AIAnalysisPage from "@/pages/AIAnalysisPage";
 import AuditPage from "@/pages/AuditPage";
 import ConfigPage from "@/pages/ConfigPage";
 import LoginPage from "@/pages/LoginPage";
 import LogsPage from "@/pages/LogsPage";
 import OrdersPage from "@/pages/OrdersPage";
 import OverviewPage from "@/pages/OverviewPage";
+import PaperTradingPage from "@/pages/PaperTradingPage";
 import PositionsPage from "@/pages/PositionsPage";
 import { Redirect, Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -36,6 +38,8 @@ function Router() {
       <Route path="/" component={() => <ProtectedView><OverviewPage /></ProtectedView>} />
       <Route path="/positions" component={() => <ProtectedView><PositionsPage /></ProtectedView>} />
       <Route path="/orders" component={() => <ProtectedView><OrdersPage /></ProtectedView>} />
+      <Route path="/paper" component={() => <ProtectedView><PaperTradingPage /></ProtectedView>} />
+      <Route path="/ai" component={() => <ProtectedView><AIAnalysisPage /></ProtectedView>} />
       <Route path="/logs" component={() => <ProtectedView><LogsPage /></ProtectedView>} />
       <Route path="/audit" component={() => <ProtectedView><AuditPage /></ProtectedView>} />
       <Route path="/config" component={() => <ProtectedView><ConfigPage /></ProtectedView>} />
