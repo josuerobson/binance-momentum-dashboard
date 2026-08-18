@@ -5,6 +5,7 @@ import { bootstrapDashboardAdmin, clearSessionCookie, createSessionToken, loginD
 import { aiRouter } from "./routers/ai";
 import { arbRouter } from "./routers/arb";
 import { easypanelRouter } from "./routers/easypanel";
+import { experimentRouter } from "./routers/experiment";
 import { logsRouter } from "./routers/logs";
 import { paperRouter } from "./routers/paper";
 import { scannerRouter } from "./routers/scanner";
@@ -43,6 +44,7 @@ export const appRouter = router({
   ai: aiRouter,
   scanner: scannerRouter,
   arb: arbRouter,
+  experiment: experimentRouter,
 });
 
 export type AppRouter = typeof appRouter;
