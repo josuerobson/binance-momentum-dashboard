@@ -4,6 +4,37 @@ import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/format";
 import { trpc } from "@/lib/trpc";
 
+// Parse AI JSON that may contain literal newlines/tabs inside string values
+function repairAndParse(text: string): Record<string, unknown> | null {
+  if (!text) return null;
+  const stripped = text.replace(/^```(?:json)?\s*/im, "").replace(/\s*```\s*$/m, "").trim();
+  const jsonStr = stripped.match(/\{[\s\S]*\}/)?.[0] ?? stripped;
+  if (!jsonStr.startsWith("{")) return null;
+
+  // Direct parse first
+  try { return JSON.parse(jsonStr) as Record<string, unknown>; } catch { /* fall through */ }
+
+  // Escape literal control chars inside string values
+  let inStr = false, esc = false;
+  const chars: string[] = [];
+  for (const ch of jsonStr) {
+    if (esc) { esc = false; chars.push(ch); continue; }
+    if (ch === "\\" && inStr) { esc = true; chars.push(ch); continue; }
+    if (ch === '"') { inStr = !inStr; chars.push(ch); continue; }
+    if (inStr) {
+      if (ch === "\n") { chars.push("\\n"); continue; }
+      if (ch === "\r") { chars.push("\\r"); continue; }
+      if (ch === "\t") { chars.push("\\t"); continue; }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) { chars.push(`\\u${code.toString(16).padStart(4, "0")}`); continue; }
+    }
+    chars.push(ch);
+  }
+  // Also remove trailing commas before } or ]
+  const fixed = chars.join("").replace(/,(\s*[}\]])/g, "$1");
+  try { return JSON.parse(fixed) as Record<string, unknown>; } catch { return null; }
+}
+
 type Config = {
   momentum_window_secs: number;
   momentum_trigger_pct: number;
@@ -126,17 +157,36 @@ export default function AIAnalysisPage() {
 
   const analyzeMutation = trpc.ai.analyze.useMutation({
     onSuccess: data => {
+      // If server-side JSON parsing failed, analysis contains raw JSON text — try client-side repair
+      let parsed = data as typeof data & { analysis: string };
+      if (parsed.analysis?.trim().startsWith("{")) {
+        const raw = repairAndParse(data.raw ?? parsed.analysis);
+        if (raw && typeof raw.analysis === "string") {
+          parsed = {
+            ...parsed,
+            analysis: raw.analysis,
+            key_findings: Array.isArray(raw.key_findings) ? raw.key_findings as string[] : parsed.key_findings,
+            red_flags: Array.isArray(raw.red_flags) ? raw.red_flags as string[] : parsed.red_flags,
+            dont_change: Array.isArray(raw.dont_change) ? raw.dont_change as string[] : parsed.dont_change,
+            priority_changes: Array.isArray(raw.priority_changes) ? raw.priority_changes as typeof parsed.priority_changes : parsed.priority_changes,
+            confidence_level: typeof raw.confidence_level === "string" ? raw.confidence_level as "baixa" | "média" | "alta" : parsed.confidence_level,
+            rationale: typeof raw.rationale === "string" ? raw.rationale : parsed.rationale,
+            suggested_config: (raw.suggested_config as Partial<Config>) ?? parsed.suggested_config,
+          };
+        }
+      }
+
       setAnalysis({
-        ...data,
-        key_findings: data.key_findings ?? [],
-        red_flags: data.red_flags ?? [],
-        dont_change: data.dont_change ?? [],
-        priority_changes: (data.priority_changes ?? []) as { param: string; from: number | string; to: number | string; reason: string }[],
-        confidence_level: data.confidence_level ?? "baixa",
-        suggested_config: data.suggested_config as Partial<Config>,
+        ...parsed,
+        key_findings: parsed.key_findings ?? [],
+        red_flags: parsed.red_flags ?? [],
+        dont_change: parsed.dont_change ?? [],
+        priority_changes: (parsed.priority_changes ?? []) as { param: string; from: number | string; to: number | string; reason: string }[],
+        confidence_level: parsed.confidence_level ?? "baixa",
+        suggested_config: parsed.suggested_config as Partial<Config>,
       });
-      if (data.suggested_config && Object.keys(data.suggested_config).length > 0) {
-        setLocalConfig(prev => ({ ...prev, ...data.suggested_config }));
+      if (parsed.suggested_config && Object.keys(parsed.suggested_config).length > 0) {
+        setLocalConfig(prev => ({ ...prev, ...parsed.suggested_config }));
       }
     },
   });

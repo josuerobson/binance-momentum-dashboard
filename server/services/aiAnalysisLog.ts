@@ -67,6 +67,13 @@ export async function markAnalysisApplied(id: number, configAfter: Record<string
   );
 }
 
+// mysql2 auto-parses JSON columns when using pool.query(); handle both string and object
+function parseJsonField(v: unknown, fallback: unknown): unknown {
+  if (v === null || v === undefined) return fallback;
+  if (typeof v !== "string") return v;
+  try { return JSON.parse(v); } catch { return fallback; }
+}
+
 export async function getRecentAnalyses(limit = 5): Promise<AnalysisRecord[]> {
   await ensureTable();
   const [rows] = await getPool().query(
@@ -81,9 +88,9 @@ export async function getRecentAnalyses(limit = 5): Promise<AnalysisRecord[]> {
     total_pnl_usdt: r.total_pnl_usdt as number,
     analysis_text: r.analysis_text as string,
     rationale_text: r.rationale_text as string,
-    suggested_config: JSON.parse((r.suggested_config as string) ?? "{}"),
+    suggested_config: parseJsonField(r.suggested_config, {}) as Record<string, unknown>,
     applied_at: r.applied_at as string | null,
-    config_before: r.config_before ? JSON.parse(r.config_before as string) : null,
-    config_after: r.config_after ? JSON.parse(r.config_after as string) : null,
+    config_before: r.config_before ? parseJsonField(r.config_before, null) as Record<string, unknown> : null,
+    config_after: r.config_after ? parseJsonField(r.config_after, null) as Record<string, unknown> : null,
   }));
 }

@@ -251,17 +251,24 @@ export const aiRouter = router({
       } catch (parseErr) {
         console.error("[ai.analyze] JSON.parse failed:", String(parseErr).slice(0, 200));
         console.error("[ai.analyze] jsonStr start:", JSON.stringify(jsonStr.slice(0, 150)));
-        // Fix literal newlines inside JSON strings (LLMs often emit these)
+        // Fix literal control chars inside JSON strings and trailing commas
         try {
           let inStr = false, esc = false;
-          const fixed = Array.from(jsonStr).map(ch => {
-            if (esc) { esc = false; return ch; }
-            if (ch === "\\" && inStr) { esc = true; return ch; }
-            if (ch === '"') { inStr = !inStr; return ch; }
-            if (inStr && ch === "\n") return "\\n";
-            if (inStr && ch === "\r") return "\\r";
-            return ch;
-          }).join("");
+          const chars: string[] = [];
+          for (const ch of jsonStr) {
+            if (esc) { esc = false; chars.push(ch); continue; }
+            if (ch === "\\" && inStr) { esc = true; chars.push(ch); continue; }
+            if (ch === '"') { inStr = !inStr; chars.push(ch); continue; }
+            if (inStr) {
+              if (ch === "\n") { chars.push("\\n"); continue; }
+              if (ch === "\r") { chars.push("\\r"); continue; }
+              if (ch === "\t") { chars.push("\\t"); continue; }
+              const code = ch.charCodeAt(0);
+              if (code < 0x20) { chars.push(`\\u${code.toString(16).padStart(4, "0")}`); continue; }
+            }
+            chars.push(ch);
+          }
+          const fixed = chars.join("").replace(/,(\s*[}\]])/g, "$1");
           const raw = JSON.parse(fixed);
           const validation = aiResponseSchema.safeParse(raw);
           parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? fenceStripped, rationale: raw.rationale ?? "" };
