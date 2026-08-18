@@ -314,7 +314,7 @@ export const aiRouter = router({
   markApplied: protectedProcedure
     .input(z.object({
       analysisId: z.number().int().positive(),
-      configAfter: z.record(z.unknown()),
+      configAfter: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ input }) => {
       await markAnalysisApplied(input.analysisId, input.configAfter);
