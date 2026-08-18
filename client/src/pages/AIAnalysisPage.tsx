@@ -241,7 +241,11 @@ export default function AIAnalysisPage() {
   });
 
   const markAppliedMutation = trpc.ai.markApplied.useMutation({
-    onSuccess: () => refetchHistory(),
+    onSuccess: () => {
+      setSaveStatus("saved");
+      refetchHistory();
+    },
+    onError: (err) => console.error("[markApplied] failed:", err.message),
   });
 
   const updateConfigMutation = trpc.paper.updateConfig.useMutation({
