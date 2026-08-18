@@ -213,6 +213,7 @@ export const aiRouter = router({
 
       let text: string;
       try {
+        console.log(`[ai.analyze] calling AI, provider=${provider?.name ?? "ENV"}, trades=${trades.length}`);
         if (provider) {
           text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 3500);
         } else {
@@ -220,13 +221,19 @@ export const aiRouter = router({
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": ENV.anthropicApiKey, "anthropic-version": "2023-06-01" },
             body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 3500, messages: [{ role: "user", content: prompt }] }),
-            signal: AbortSignal.timeout(60_000),
+            signal: AbortSignal.timeout(45_000),
           });
-          if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => "")}`);
+          if (!res.ok) {
+            const errBody = await res.text().catch(() => "");
+            console.error(`[ai.analyze] API error ${res.status}: ${errBody.slice(0, 200)}`);
+            throw new Error(`${res.status}: ${errBody.slice(0, 200)}`);
+          }
           const data = await res.json() as { content?: { type: string; text?: string }[] };
           text = data.content?.find(b => b.type === "text")?.text ?? "";
         }
+        console.log(`[ai.analyze] AI responded, text length=${text.length}`);
       } catch (e) {
+        console.error(`[ai.analyze] caught error:`, e);
         throw new TRPCError({ code: "BAD_GATEWAY", message: `Erro na API de IA: ${String(e).slice(0, 200)}` });
       }
 
