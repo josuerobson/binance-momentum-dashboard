@@ -246,9 +246,29 @@ export const aiRouter = router({
       try {
         const raw = JSON.parse(jsonStr);
         const validation = aiResponseSchema.safeParse(raw);
+        if (!validation.success) console.warn("[ai.analyze] zod validation failed:", JSON.stringify(validation.error?.issues?.slice(0, 3)));
         parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? fenceStripped, rationale: raw.rationale ?? "" };
-      } catch {
-        parsed = { analysis: fenceStripped, suggested_config: {}, rationale: "", confidence_level: "baixa" };
+      } catch (parseErr) {
+        console.error("[ai.analyze] JSON.parse failed:", String(parseErr).slice(0, 200));
+        console.error("[ai.analyze] jsonStr start:", JSON.stringify(jsonStr.slice(0, 150)));
+        // Fix literal newlines inside JSON strings (LLMs often emit these)
+        try {
+          let inStr = false, esc = false;
+          const fixed = Array.from(jsonStr).map(ch => {
+            if (esc) { esc = false; return ch; }
+            if (ch === "\\" && inStr) { esc = true; return ch; }
+            if (ch === '"') { inStr = !inStr; return ch; }
+            if (inStr && ch === "\n") return "\\n";
+            if (inStr && ch === "\r") return "\\r";
+            return ch;
+          }).join("");
+          const raw = JSON.parse(fixed);
+          const validation = aiResponseSchema.safeParse(raw);
+          parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? fenceStripped, rationale: raw.rationale ?? "" };
+          console.log("[ai.analyze] JSON fixed by escaping newlines in strings");
+        } catch {
+          parsed = { analysis: fenceStripped, suggested_config: {}, rationale: "", confidence_level: "baixa" };
+        }
       }
 
       const configValidation = suggestedConfigSchema.safeParse(parsed.suggested_config ?? {});
