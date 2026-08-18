@@ -3,6 +3,7 @@ import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
 import { bootstrapDashboardAdmin, clearSessionCookie, createSessionToken, loginDashboardUser, setSessionCookie } from "./localAuth";
 import { aiRouter } from "./routers/ai";
+import { arbRouter } from "./routers/arb";
 import { easypanelRouter } from "./routers/easypanel";
 import { logsRouter } from "./routers/logs";
 import { paperRouter } from "./routers/paper";
@@ -41,6 +42,7 @@ export const appRouter = router({
   paper: paperRouter,
   ai: aiRouter,
   scanner: scannerRouter,
+  arb: arbRouter,
 });
 
 export type AppRouter = typeof appRouter;

@@ -5,6 +5,7 @@ import { DashboardLayoutSkeleton } from "@/components/DashboardLayoutSkeleton";
 import { useAuth } from "@/_core/hooks/useAuth";
 import NotFound from "@/pages/NotFound";
 import AIAnalysisPage from "@/pages/AIAnalysisPage";
+import ArbPage from "@/pages/ArbPage";
 import AuditPage from "@/pages/AuditPage";
 import ConfigPage from "@/pages/ConfigPage";
 import LoginPage from "@/pages/LoginPage";
@@ -40,6 +41,7 @@ function Router() {
       <Route path="/positions" component={() => <ProtectedView><PositionsPage /></ProtectedView>} />
       <Route path="/orders" component={() => <ProtectedView><OrdersPage /></ProtectedView>} />
       <Route path="/scanner" component={() => <ProtectedView><ScannerPage /></ProtectedView>} />
+      <Route path="/arb" component={() => <ProtectedView><ArbPage /></ProtectedView>} />
       <Route path="/paper" component={() => <ProtectedView><PaperTradingPage /></ProtectedView>} />
       <Route path="/ai" component={() => <ProtectedView><AIAnalysisPage /></ProtectedView>} />
       <Route path="/logs" component={() => <ProtectedView><LogsPage /></ProtectedView>} />

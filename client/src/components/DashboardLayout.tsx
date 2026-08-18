@@ -3,7 +3,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Sidebar, SidebarContent, SidebarFooter, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Activity, Binary, Bot, ChartNoAxesCombined, FileSearch, FileText, FlaskConical, LayoutDashboard, LogOut, Radar, Settings2 } from "lucide-react";
+import { Activity, ArrowRightLeft, Binary, Bot, ChartNoAxesCombined, FileSearch, FileText, FlaskConical, LayoutDashboard, LogOut, Radar, Settings2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
@@ -12,6 +12,7 @@ const menuItems = [
   { icon: ChartNoAxesCombined, label: "Posições", path: "/positions" },
   { icon: FileText, label: "Ordens", path: "/orders" },
   { icon: Radar, label: "Radar", path: "/scanner" },
+  { icon: ArrowRightLeft, label: "Arbitragem", path: "/arb" },
   { icon: FlaskConical, label: "Paper Trading", path: "/paper" },
   { icon: Bot, label: "Análise IA", path: "/ai" },
   { icon: FileSearch, label: "Logs", path: "/logs" },
