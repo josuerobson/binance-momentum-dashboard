@@ -1,4 +1,4 @@
-import { pool } from "../_core/db";
+import { getPool } from "../_core/db";
 
 export interface AnalysisRecord {
   id: number;
@@ -15,7 +15,7 @@ export interface AnalysisRecord {
 }
 
 async function ensureTable() {
-  await pool.execute(`
+  await getPool().execute(`
     CREATE TABLE IF NOT EXISTS ai_analysis_log (
       id INT AUTO_INCREMENT PRIMARY KEY,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -42,7 +42,7 @@ export async function saveAnalysis(data: {
   config_before: Record<string, unknown>;
 }): Promise<number> {
   await ensureTable();
-  const [result] = await pool.execute(
+  const [result] = await getPool().execute(
     `INSERT INTO ai_analysis_log
        (trade_count, win_rate_pct, total_pnl_usdt, analysis_text, rationale_text, suggested_config, config_before)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -61,7 +61,7 @@ export async function saveAnalysis(data: {
 
 export async function markAnalysisApplied(id: number, configAfter: Record<string, unknown>): Promise<void> {
   await ensureTable();
-  await pool.execute(
+  await getPool().execute(
     `UPDATE ai_analysis_log SET applied_at = NOW(), config_after = ? WHERE id = ?`,
     [JSON.stringify(configAfter), id]
   );
@@ -69,7 +69,7 @@ export async function markAnalysisApplied(id: number, configAfter: Record<string
 
 export async function getRecentAnalyses(limit = 5): Promise<AnalysisRecord[]> {
   await ensureTable();
-  const [rows] = await pool.execute(
+  const [rows] = await getPool().execute(
     `SELECT * FROM ai_analysis_log ORDER BY created_at DESC LIMIT ?`,
     [limit]
   );
