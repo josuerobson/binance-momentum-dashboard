@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
 import { callProvider, getAssignedProviders } from "../services/aiRegistry";
-import { saveAnalysis, markAnalysisApplied, getRecentAnalyses, type AnalysisRecord } from "../services/aiAnalysisLog";
+import { saveAnalysis, markAnalysisApplied, getRecentAnalyses, deleteAnalysis, clearAllAnalyses, type AnalysisRecord } from "../services/aiAnalysisLog";
 import { getPrompt } from "../services/promptRegistry";
 import type { PaperTrade } from "./paper";
 
@@ -323,5 +323,17 @@ export const aiRouter = router({
 
   getHistory: protectedProcedure.query(async () => {
     return getRecentAnalyses(5);
+  }),
+
+  deleteHistory: protectedProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      await deleteAnalysis(input.id);
+      return { ok: true };
+    }),
+
+  clearHistory: protectedProcedure.mutation(async () => {
+    await clearAllAnalyses();
+    return { ok: true };
   }),
 });

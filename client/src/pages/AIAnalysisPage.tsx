@@ -1,4 +1,4 @@
-import { AlertTriangle, Bot, CheckCircle, Clock, Loader2, Sliders, TrendingUp, Zap } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle, Clock, Loader2, Sliders, Trash2, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/format";
@@ -85,11 +85,11 @@ function BoolConfigField({ label, field, value, onChange }: {
   );
 }
 
-function HistoryCard({ item }: { item: {
+function HistoryCard({ item, onDelete }: { item: {
   id: number; created_at: string; trade_count: number; win_rate_pct: number;
   total_pnl_usdt: number; applied_at: string | null; config_after: Record<string, unknown> | null;
   config_before: Record<string, unknown> | null;
-}}) {
+}; onDelete: (id: number) => void }) {
   const applied = !!item.applied_at;
   const appliedDate = item.applied_at ? new Date(item.applied_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
   const createdDate = new Date(item.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -111,15 +111,24 @@ function HistoryCard({ item }: { item: {
           <span className="font-medium text-foreground">{createdDate}</span>
           <span className="ml-2 text-muted-foreground">· {item.trade_count} trades</span>
         </div>
-        {applied ? (
-          <span className="flex items-center gap-1 rounded-full bg-[#00ff88]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00ff88]">
-            <CheckCircle className="h-3 w-3" /> Aplicada {appliedDate}
-          </span>
-        ) : (
-          <span className="flex items-center gap-1 rounded-full bg-white/[.05] px-2 py-0.5 text-[10px] text-muted-foreground">
-            <Clock className="h-3 w-3" /> Não aplicada
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {applied ? (
+            <span className="flex items-center gap-1 rounded-full bg-[#00ff88]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00ff88]">
+              <CheckCircle className="h-3 w-3" /> Aplicada {appliedDate}
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 rounded-full bg-white/[.05] px-2 py-0.5 text-[10px] text-muted-foreground">
+              <Clock className="h-3 w-3" /> Não aplicada
+            </span>
+          )}
+          <button
+            onClick={() => onDelete(item.id)}
+            className="rounded p-0.5 text-muted-foreground hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+            title="Excluir análise"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <div className="flex gap-4 text-muted-foreground">
         <span>Win rate: <strong className="text-foreground">{item.win_rate_pct.toFixed(1)}%</strong></span>
@@ -154,6 +163,17 @@ export default function AIAnalysisPage() {
     suggested_config: Partial<Config>;
   } | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
+
+  const deleteHistoryMutation = trpc.ai.deleteHistory.useMutation({ onSuccess: () => refetchHistory() });
+  const clearHistoryMutation = trpc.ai.clearHistory.useMutation({ onSuccess: () => refetchHistory() });
+
+  const handleDeleteHistory = (id: number) => {
+    if (confirm("Excluir esta análise do histórico?")) deleteHistoryMutation.mutate({ id });
+  };
+
+  const handleClearHistory = () => {
+    if (confirm("Excluir todo o histórico de análises da IA?")) clearHistoryMutation.mutate();
+  };
 
   const analyzeMutation = trpc.ai.analyze.useMutation({
     onSuccess: data => {
@@ -457,14 +477,25 @@ export default function AIAnalysisPage() {
           {/* Analysis history */}
           {(analysisHistory ?? []).length > 0 && (
             <article className="cyber-surface p-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold text-foreground">Histórico de análises</h2>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <h2 className="text-sm font-semibold text-foreground">Histórico de análises</h2>
+                </div>
+                <button
+                  onClick={handleClearHistory}
+                  disabled={clearHistoryMutation.isLoading}
+                  className="flex items-center gap-1 rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-rose-400 hover:bg-rose-400/10 transition-colors disabled:opacity-50"
+                  title="Limpar todo o histórico"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  Limpar tudo
+                </button>
               </div>
               <p className="mb-3 text-xs text-muted-foreground">A IA usa este histórico para avaliar se suas sugestões anteriores funcionaram.</p>
               <div className="space-y-2">
                 {(analysisHistory ?? []).map(item => (
-                  <HistoryCard key={item.id} item={item} />
+                  <HistoryCard key={item.id} item={item} onDelete={handleDeleteHistory} />
                 ))}
               </div>
             </article>

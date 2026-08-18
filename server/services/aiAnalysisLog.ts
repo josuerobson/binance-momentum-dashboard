@@ -74,6 +74,16 @@ function parseJsonField(v: unknown, fallback: unknown): unknown {
   try { return JSON.parse(v); } catch { return fallback; }
 }
 
+export async function deleteAnalysis(id: number): Promise<void> {
+  await ensureTable();
+  await getPool().query(`DELETE FROM ai_analysis_log WHERE id = ?`, [id]);
+}
+
+export async function clearAllAnalyses(): Promise<void> {
+  await ensureTable();
+  await getPool().query(`DELETE FROM ai_analysis_log`);
+}
+
 export async function getRecentAnalyses(limit = 5): Promise<AnalysisRecord[]> {
   await ensureTable();
   const [rows] = await getPool().query(
