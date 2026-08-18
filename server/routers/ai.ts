@@ -101,13 +101,13 @@ export const aiRouter = router({
       let text: string;
       try {
         if (provider) {
-          text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 2048);
+          text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 3500);
         } else {
           // Legacy ENV fallback
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": ENV.anthropicApiKey, "anthropic-version": "2023-06-01" },
-            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 2048, messages: [{ role: "user", content: prompt }] }),
+            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 3500, messages: [{ role: "user", content: prompt }] }),
             signal: AbortSignal.timeout(60_000),
           });
           if (!res.ok) throw new Error(`${res.status}: ${await res.text().catch(() => "")}`);
@@ -118,13 +118,15 @@ export const aiRouter = router({
         throw new TRPCError({ code: "BAD_GATEWAY", message: `Erro na API de IA: ${String(e).slice(0, 200)}` });
       }
 
+      // Strip markdown code fences that some models add despite instructions
+      const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+
       let parsed: { analysis: string; suggested_config: SuggestedConfig; rationale: string };
       try {
-        parsed = JSON.parse(text);
+        parsed = JSON.parse(stripped);
       } catch {
-        // If Claude returns non-JSON, wrap it
         parsed = {
-          analysis: text,
+          analysis: stripped,
           suggested_config: {},
           rationale: "",
         };
