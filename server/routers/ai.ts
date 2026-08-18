@@ -237,16 +237,18 @@ export const aiRouter = router({
         throw new TRPCError({ code: "BAD_GATEWAY", message: `Erro na API de IA: ${String(e).slice(0, 200)}` });
       }
 
-      // Strip markdown code fences that some models add despite instructions
-      const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      // Strip markdown fences, then extract the JSON object from anywhere in the text
+      const fenceStripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
+      const jsonMatch = fenceStripped.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : fenceStripped;
 
       let parsed: z.infer<typeof aiResponseSchema>;
       try {
-        const raw = JSON.parse(stripped);
+        const raw = JSON.parse(jsonStr);
         const validation = aiResponseSchema.safeParse(raw);
-        parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? stripped, rationale: raw.rationale ?? "" };
+        parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? fenceStripped, rationale: raw.rationale ?? "" };
       } catch {
-        parsed = { analysis: stripped, suggested_config: {}, rationale: "", confidence_level: "baixa" };
+        parsed = { analysis: fenceStripped, suggested_config: {}, rationale: "", confidence_level: "baixa" };
       }
 
       const configValidation = suggestedConfigSchema.safeParse(parsed.suggested_config ?? {});
