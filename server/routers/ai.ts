@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
 import { callProvider, getAssignedProviders } from "../services/aiRegistry";
+import { saveAnalysis, markAnalysisApplied, getRecentAnalyses, type AnalysisRecord } from "../services/aiAnalysisLog";
 import type { PaperTrade } from "./paper";
 
 const suggestedConfigSchema = z.object({
@@ -20,7 +21,61 @@ const suggestedConfigSchema = z.object({
 
 export type SuggestedConfig = z.infer<typeof suggestedConfigSchema>;
 
-function buildPrompt(trades: PaperTrade[], currentConfig: unknown): string {
+function buildHistorySection(history: AnalysisRecord[], allTrades: PaperTrade[]): string {
+  if (history.length === 0) return "";
+
+  const lines: string[] = ["\n## Histórico de análises anteriores"];
+  lines.push("Use estas informações para avaliar se suas sugestões anteriores funcionaram e refinar sua análise atual.\n");
+
+  for (const h of history) {
+    const appliedLabel = h.applied_at
+      ? `✅ Aplicada em ${h.applied_at.toString().slice(0, 16)}`
+      : "⏭ Não aplicada";
+
+    lines.push(`### Análise de ${h.created_at.toString().slice(0, 16)} (base: ${h.trade_count} trades)`);
+    lines.push(`- Win rate na época: ${h.win_rate_pct.toFixed(1)}% | P&L: ${h.total_pnl_usdt >= 0 ? "+" : ""}${h.total_pnl_usdt.toFixed(2)} USDT`);
+    lines.push(`- Status: ${appliedLabel}`);
+
+    if (h.applied_at && h.config_after) {
+      // Compute trades that happened after this config was applied
+      const appliedTs = new Date(h.applied_at).getTime();
+      const tradesSince = allTrades.filter(t => t.closed_at > appliedTs);
+      const winsSince = tradesSince.filter(t => t.pnl_usdt > 0).length;
+      const pnlSince = tradesSince.reduce((s, t) => s + t.pnl_usdt, 0);
+      const winRateSince = tradesSince.length > 0
+        ? ((winsSince / tradesSince.length) * 100).toFixed(1)
+        : "n/a";
+
+      const changes: string[] = [];
+      if (h.config_before && h.config_after) {
+        for (const [k, v] of Object.entries(h.config_after)) {
+          const before = (h.config_before as Record<string, unknown>)[k];
+          if (before !== undefined && before !== v) {
+            changes.push(`${k}: ${before} → ${v}`);
+          }
+        }
+      }
+      if (changes.length > 0) {
+        lines.push(`- Mudanças aplicadas: ${changes.join(", ")}`);
+      }
+
+      if (tradesSince.length > 0) {
+        lines.push(`- Resultado desde a aplicação: ${tradesSince.length} trades | win rate ${winRateSince}% | P&L ${pnlSince >= 0 ? "+" : ""}${pnlSince.toFixed(2)} USDT`);
+        const tpSince = tradesSince.filter(t => t.exit_reason === "TP").length;
+        const slSince = tradesSince.filter(t => t.exit_reason === "SL").length;
+        lines.push(`  (TP: ${tpSince} | SL: ${slSince})`);
+      } else {
+        lines.push("- Nenhum trade registrado desde a aplicação.");
+      }
+    }
+
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function buildPrompt(trades: PaperTrade[], currentConfig: unknown, history: AnalysisRecord[]): string {
   const total = trades.length;
   const wins = trades.filter(t => t.pnl_usdt > 0).length;
   const totalPnl = trades.reduce((s, t) => s + t.pnl_usdt, 0);
@@ -37,8 +92,10 @@ function buildPrompt(trades: PaperTrade[], currentConfig: unknown): string {
     )
     .join("\n");
 
-  return `Você é um analista de trading quantitativo especializado em estratégias de momentum em criptomoedas. Analise os dados de um bot de paper trading (simulação com dados reais da Binance) e forneça recomendações para otimizar os parâmetros.
+  const historySection = buildHistorySection(history, trades);
 
+  return `Você é um analista de trading quantitativo especializado em estratégias de momentum em criptomoedas. Analise os dados de um bot de paper trading (simulação com dados reais da Binance) e forneça recomendações para otimizar os parâmetros.
+${historySection}
 ## Configuração atual do bot
 ${JSON.stringify(currentConfig, null, 2)}
 
@@ -53,10 +110,11 @@ ${JSON.stringify(currentConfig, null, 2)}
 ${recentTrades || "Nenhuma operação registrada ainda."}
 
 ## Solicitação
-Com base nesses dados:
-1. Analise o que está funcionando e o que não está na estratégia atual.
-2. Identifique padrões (ex: qual janela de tempo produz mais acertos, se o stop está muito apertado, etc).
-3. Sugira ajustes específicos e justificados nos parâmetros.
+Com base nesses dados e no histórico de análises anteriores (se houver):
+1. Avalie se as sugestões anteriores tiveram o efeito esperado nos trades subsequentes.
+2. Analise o que está funcionando e o que não está na estratégia atual.
+3. Identifique padrões (ex: qual janela de tempo produz mais acertos, se o stop está muito apertado, etc).
+4. Sugira ajustes específicos e justificados nos parâmetros.
 
 Responda SOMENTE com JSON válido neste formato exato (sem markdown, sem texto fora do JSON):
 {
@@ -84,7 +142,6 @@ export const aiRouter = router({
       currentConfig: z.any(),
     }))
     .mutation(async ({ input }) => {
-      // Try registry-assigned provider first, fall back to ENV key
       const assigned = await getAssignedProviders("market_analysis").catch(() => []);
       const provider = assigned[0] ?? null;
 
@@ -96,14 +153,14 @@ export const aiRouter = router({
       }
 
       const trades = input.trades as PaperTrade[];
-      const prompt = buildPrompt(trades, input.currentConfig);
+      const history = await getRecentAnalyses(3).catch(() => [] as AnalysisRecord[]);
+      const prompt = buildPrompt(trades, input.currentConfig, history);
 
       let text: string;
       try {
         if (provider) {
           text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 3500);
         } else {
-          // Legacy ENV fallback
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": ENV.anthropicApiKey, "anthropic-version": "2023-06-01" },
@@ -125,20 +182,48 @@ export const aiRouter = router({
       try {
         parsed = JSON.parse(stripped);
       } catch {
-        parsed = {
-          analysis: stripped,
-          suggested_config: {},
-          rationale: "",
-        };
+        parsed = { analysis: stripped, suggested_config: {}, rationale: "" };
       }
 
       const configValidation = suggestedConfigSchema.safeParse(parsed.suggested_config ?? {});
+      const validConfig = configValidation.success ? configValidation.data : {};
+
+      // Compute stats for logging
+      const total = trades.length;
+      const wins = trades.filter(t => t.pnl_usdt > 0).length;
+      const totalPnl = trades.reduce((s, t) => s + t.pnl_usdt, 0);
+      const winRate = total > 0 ? (wins / total) * 100 : 0;
+
+      const analysisId = await saveAnalysis({
+        trade_count: total,
+        win_rate_pct: winRate,
+        total_pnl_usdt: totalPnl,
+        analysis_text: parsed.analysis ?? "",
+        rationale_text: parsed.rationale ?? "",
+        suggested_config: validConfig as Record<string, unknown>,
+        config_before: (input.currentConfig as Record<string, unknown>) ?? {},
+      }).catch(() => 0);
 
       return {
+        analysisId,
         analysis: parsed.analysis ?? "",
         rationale: parsed.rationale ?? "",
-        suggested_config: configValidation.success ? configValidation.data : {},
+        suggested_config: validConfig,
         raw: text,
       };
     }),
+
+  markApplied: protectedProcedure
+    .input(z.object({
+      analysisId: z.number().int().positive(),
+      configAfter: z.record(z.unknown()),
+    }))
+    .mutation(async ({ input }) => {
+      await markAnalysisApplied(input.analysisId, input.configAfter);
+      return { ok: true };
+    }),
+
+  getHistory: protectedProcedure.query(async () => {
+    return getRecentAnalyses(5);
+  }),
 });

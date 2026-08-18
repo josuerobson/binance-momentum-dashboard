@@ -1,4 +1,4 @@
-import { Bot, CheckCircle, Loader2, Sliders } from "lucide-react";
+import { Bot, CheckCircle, Clock, Loader2, Sliders, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/format";
@@ -22,26 +22,17 @@ type Config = {
   trailing_stop_distance_pct: number;
 };
 
-type NumericField = {
-  [K in keyof Config]: Config[K] extends number ? K : never;
-}[keyof Config];
+type NumericField = { [K in keyof Config]: Config[K] extends number ? K : never }[keyof Config];
+type BooleanField = { [K in keyof Config]: Config[K] extends boolean ? K : never }[keyof Config];
 
-type BooleanField = {
-  [K in keyof Config]: Config[K] extends boolean ? K : never;
-}[keyof Config];
-
-function ConfigField({
-  label, field, value, onChange,
-}: {
+function ConfigField({ label, field, value, onChange }: {
   label: string; field: NumericField; value: number; onChange: (f: NumericField, v: number) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/[.06] py-2.5 text-sm last:border-0">
       <label className="text-muted-foreground">{label}</label>
       <input
-        type="number"
-        step="any"
-        value={value}
+        type="number" step="any" value={value}
         onChange={e => onChange(field, parseFloat(e.target.value) || 0)}
         className="w-28 rounded-md border border-white/10 bg-white/[.04] px-2 py-1 text-right text-foreground focus:border-[#00ff88]/40 focus:outline-none focus:ring-1 focus:ring-[#00ff88]/20"
       />
@@ -49,21 +40,67 @@ function ConfigField({
   );
 }
 
-function BoolConfigField({
-  label, field, value, onChange,
-}: {
+function BoolConfigField({ label, field, value, onChange }: {
   label: string; field: BooleanField; value: boolean; onChange: (f: BooleanField, v: boolean) => void;
 }) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-white/[.06] py-2.5 text-sm last:border-0">
       <label className="text-muted-foreground">{label}</label>
-      <button
-        type="button"
-        onClick={() => onChange(field, !value)}
-        className={`relative h-6 w-11 rounded-full transition-colors focus:outline-none ${value ? "bg-[#00ff88]/70" : "bg-white/10"}`}
-      >
+      <button type="button" onClick={() => onChange(field, !value)}
+        className={`relative h-6 w-11 rounded-full transition-colors focus:outline-none ${value ? "bg-[#00ff88]/70" : "bg-white/10"}`}>
         <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${value ? "translate-x-5" : "translate-x-0"}`} />
       </button>
+    </div>
+  );
+}
+
+function HistoryCard({ item }: { item: {
+  id: number; created_at: string; trade_count: number; win_rate_pct: number;
+  total_pnl_usdt: number; applied_at: string | null; config_after: Record<string, unknown> | null;
+  config_before: Record<string, unknown> | null;
+}}) {
+  const applied = !!item.applied_at;
+  const appliedDate = item.applied_at ? new Date(item.applied_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : null;
+  const createdDate = new Date(item.created_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+  const changes: string[] = [];
+  if (applied && item.config_before && item.config_after) {
+    for (const [k, v] of Object.entries(item.config_after)) {
+      const before = item.config_before[k];
+      if (before !== undefined && before !== v) {
+        changes.push(`${k.replace(/_/g, " ")}: ${before} → ${v}`);
+      }
+    }
+  }
+
+  return (
+    <div className={`rounded-lg border p-3 text-xs ${applied ? "border-[#00ff88]/20 bg-[#00ff88]/5" : "border-white/[.07] bg-white/[.02]"}`}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          <span className="font-medium text-foreground">{createdDate}</span>
+          <span className="ml-2 text-muted-foreground">· {item.trade_count} trades</span>
+        </div>
+        {applied ? (
+          <span className="flex items-center gap-1 rounded-full bg-[#00ff88]/10 px-2 py-0.5 text-[10px] font-semibold text-[#00ff88]">
+            <CheckCircle className="h-3 w-3" /> Aplicada {appliedDate}
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 rounded-full bg-white/[.05] px-2 py-0.5 text-[10px] text-muted-foreground">
+            <Clock className="h-3 w-3" /> Não aplicada
+          </span>
+        )}
+      </div>
+      <div className="flex gap-4 text-muted-foreground">
+        <span>Win rate: <strong className="text-foreground">{item.win_rate_pct.toFixed(1)}%</strong></span>
+        <span>P&L: <strong className={item.total_pnl_usdt >= 0 ? "text-[#00ff88]" : "text-rose-400"}>
+          {item.total_pnl_usdt >= 0 ? "+" : ""}{formatMoney(item.total_pnl_usdt)} USDT
+        </strong></span>
+      </div>
+      {changes.length > 0 && (
+        <div className="mt-2 text-[11px] text-muted-foreground/70">
+          Ajustes: {changes.slice(0, 3).join(" · ")}{changes.length > 3 ? ` +${changes.length - 3}` : ""}
+        </div>
+      )}
     </div>
   );
 }
@@ -71,18 +108,23 @@ function BoolConfigField({
 export default function AIAnalysisPage() {
   const { data: history } = trpc.paper.allHistory.useQuery({ limit: 200 });
   const { data: runtimeConfig } = trpc.paper.runtimeConfig.useQuery(undefined, { retry: 1 });
+  const { data: analysisHistory, refetch: refetchHistory } = trpc.ai.getHistory.useQuery();
 
   const [localConfig, setLocalConfig] = useState<Partial<Config>>({});
-  const [analysis, setAnalysis] = useState<{ analysis: string; rationale: string; suggested_config: Partial<Config> } | null>(null);
+  const [analysis, setAnalysis] = useState<{ analysisId: number; analysis: string; rationale: string; suggested_config: Partial<Config> } | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
   const analyzeMutation = trpc.ai.analyze.useMutation({
     onSuccess: data => {
-      setAnalysis(data);
+      setAnalysis({ ...data, suggested_config: data.suggested_config as Partial<Config> });
       if (data.suggested_config && Object.keys(data.suggested_config).length > 0) {
         setLocalConfig(prev => ({ ...prev, ...data.suggested_config }));
       }
     },
+  });
+
+  const markAppliedMutation = trpc.ai.markApplied.useMutation({
+    onSuccess: () => refetchHistory(),
   });
 
   const updateConfigMutation = trpc.paper.updateConfig.useMutation({
@@ -94,43 +136,31 @@ export default function AIAnalysisPage() {
 
   const rt = runtimeConfig as Config | undefined;
   const effective: Config = {
-    momentum_window_secs: 60,
-    momentum_trigger_pct: 2.5,
-    volume_surge_multiplier: 2.0,
-    max_spread_pct: 0.3,
-    min_24h_volume_usdt: 5_000_000,
-    stop_loss_pct: 1.5,
-    take_profit_pct: 3.0,
-    position_size_pct: 10,
-    max_positions: 2,
-    paper_balance: 10_000,
-    btc_filter_enabled: true,
-    btc_filter_window_secs: 300,
-    btc_min_momentum_pct: 0,
-    trailing_stop_enabled: true,
-    trailing_stop_distance_pct: 1.5,
-    ...rt,
-    ...localConfig,
+    momentum_window_secs: 60, momentum_trigger_pct: 2.5, volume_surge_multiplier: 2.0,
+    max_spread_pct: 0.3, min_24h_volume_usdt: 5_000_000, stop_loss_pct: 1.5,
+    take_profit_pct: 3.0, position_size_pct: 10, max_positions: 2, paper_balance: 10_000,
+    btc_filter_enabled: true, btc_filter_window_secs: 300, btc_min_momentum_pct: 0,
+    trailing_stop_enabled: true, trailing_stop_distance_pct: 1.5,
+    ...rt, ...localConfig,
   };
 
-  const handleChange = (field: NumericField, value: number) => {
-    setLocalConfig(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleBoolChange = (field: BooleanField, value: boolean) => {
-    setLocalConfig(prev => ({ ...prev, [field]: value }));
-  };
+  const handleChange = (field: NumericField, value: number) => setLocalConfig(prev => ({ ...prev, [field]: value }));
+  const handleBoolChange = (field: BooleanField, value: boolean) => setLocalConfig(prev => ({ ...prev, [field]: value }));
 
   const handleAnalyze = () => {
-    analyzeMutation.mutate({
-      trades: history ?? [],
-      currentConfig: effective,
-    });
+    analyzeMutation.mutate({ trades: history ?? [], currentConfig: effective });
   };
 
   const handleApply = () => {
     if (!effective.momentum_window_secs) return;
     updateConfigMutation.mutate(effective);
+    // Mark this analysis as applied so the AI knows in future analyses
+    if (analysis?.analysisId) {
+      markAppliedMutation.mutate({
+        analysisId: analysis.analysisId,
+        configAfter: effective as unknown as Record<string, unknown>,
+      });
+    }
   };
 
   const tradeCount = history?.length ?? 0;
@@ -145,11 +175,8 @@ export default function AIAnalysisPage() {
         title="Análise com IA"
         description="Ajuste dinâmico de parâmetros com base no histórico de paper trading e análise por IA."
         action={
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzeMutation.isPending || tradeCount < 1}
-            className="flex items-center gap-2 rounded-lg border border-[#00ff88]/30 bg-[#00ff88]/10 px-4 py-2 text-sm font-medium text-[#00ff88] transition hover:bg-[#00ff88]/15 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+          <button onClick={handleAnalyze} disabled={analyzeMutation.isPending || tradeCount < 1}
+            className="flex items-center gap-2 rounded-lg border border-[#00ff88]/30 bg-[#00ff88]/10 px-4 py-2 text-sm font-medium text-[#00ff88] transition hover:bg-[#00ff88]/15 disabled:cursor-not-allowed disabled:opacity-50">
             {analyzeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
             {analyzeMutation.isPending ? "Analisando…" : "Analisar com IA"}
           </button>
@@ -163,6 +190,7 @@ export default function AIAnalysisPage() {
       )}
 
       <section className="grid gap-5 lg:grid-cols-[1fr_1.2fr]">
+        {/* Left column — config editor + stats */}
         <div className="space-y-5">
           <article className="cyber-surface p-5">
             <div className="mb-4 flex items-center gap-2">
@@ -195,18 +223,15 @@ export default function AIAnalysisPage() {
             <ConfigField label="Distância trailing (%)" field="trailing_stop_distance_pct" value={effective.trailing_stop_distance_pct} onChange={handleChange} />
 
             <div className="mt-5 flex items-center gap-3">
-              <button
-                onClick={handleApply}
+              <button onClick={handleApply}
                 disabled={updateConfigMutation.isPending || !Object.keys(localConfig).length}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#00ff88] px-4 py-2 text-sm font-semibold text-[#0a0f1a] transition hover:bg-[#00ff88]/85 disabled:cursor-not-allowed disabled:opacity-50"
-              >
+                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#00ff88] px-4 py-2 text-sm font-semibold text-[#0a0f1a] transition hover:bg-[#00ff88]/85 disabled:cursor-not-allowed disabled:opacity-50">
                 {updateConfigMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 Aplicar ao bot
               </button>
               {saveStatus === "saved" && (
                 <div className="flex items-center gap-1.5 text-sm text-[#00ff88]">
-                  <CheckCircle className="h-4 w-4" />
-                  Aplicado
+                  <CheckCircle className="h-4 w-4" /> Aplicado
                 </div>
               )}
             </div>
@@ -234,52 +259,75 @@ export default function AIAnalysisPage() {
           </article>
         </div>
 
-        <article className="cyber-surface p-5 sm:p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Bot className="h-4 w-4 text-[#00ff88]" />
-            <h2 className="text-sm font-semibold text-foreground">Análise da IA</h2>
-          </div>
-
-          {analyzeMutation.isPending && (
-            <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin text-[#00ff88]" />
-              <p className="text-sm">Analisando {tradeCount} operações…</p>
+        {/* Right column — analysis + history */}
+        <div className="space-y-5">
+          <article className="cyber-surface p-5 sm:p-6">
+            <div className="mb-4 flex items-center gap-2">
+              <Bot className="h-4 w-4 text-[#00ff88]" />
+              <h2 className="text-sm font-semibold text-foreground">Análise da IA</h2>
             </div>
-          )}
 
-          {!analyzeMutation.isPending && !analysis && (
-            <div className="py-16 text-center text-sm text-muted-foreground">
-              <Bot className="mx-auto mb-3 h-8 w-8 opacity-30" />
-              <p>Clique em <strong className="text-foreground">Analisar com IA</strong> para receber uma análise do histórico e sugestões de parâmetros.</p>
-              {tradeCount < 1 && <p className="mt-2 text-amber-400">Aguardando dados de paper trading.</p>}
-            </div>
-          )}
+            {analyzeMutation.isPending && (
+              <div className="flex flex-col items-center justify-center gap-3 py-20 text-muted-foreground">
+                <Loader2 className="h-8 w-8 animate-spin text-[#00ff88]" />
+                <p className="text-sm">Analisando {tradeCount} operações…</p>
+              </div>
+            )}
 
-          {analysis && (
-            <div className="space-y-5">
-              <section>
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#00ff88]">Análise</h3>
-                <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.analysis}</p>
-              </section>
-              {analysis.rationale && (
+            {!analyzeMutation.isPending && !analysis && (
+              <div className="py-16 text-center text-sm text-muted-foreground">
+                <Bot className="mx-auto mb-3 h-8 w-8 opacity-30" />
+                <p>Clique em <strong className="text-foreground">Analisar com IA</strong> para receber uma análise do histórico e sugestões de parâmetros.</p>
+                {tradeCount < 1 && <p className="mt-2 text-amber-400">Aguardando dados de paper trading.</p>}
+              </div>
+            )}
+
+            {analysis && (
+              <div className="space-y-5">
                 <section>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">Justificativa dos ajustes</h3>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.rationale}</p>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#00ff88]">Análise</h3>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.analysis}</p>
                 </section>
-              )}
-              {analysis.suggested_config && Object.keys(analysis.suggested_config).length > 0 && (
-                <section>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Parâmetros sugeridos (aplicados ao editor acima)</h3>
-                  <div className="rounded-lg border border-white/[.07] bg-white/[.02] p-3 text-xs font-mono text-muted-foreground">
-                    {Object.entries(analysis.suggested_config).map(([k, v]) => (
-                      <div key={k}><span className="text-[#00ff88]">{k}</span>: {String(v)}</div>
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
+                {analysis.rationale && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">Justificativa dos ajustes</h3>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.rationale}</p>
+                  </section>
+                )}
+                {analysis.suggested_config && Object.keys(analysis.suggested_config).length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Parâmetros sugeridos (aplicados ao editor acima)</h3>
+                    <div className="rounded-lg border border-white/[.07] bg-white/[.02] p-3 text-xs font-mono text-muted-foreground">
+                      {Object.entries(analysis.suggested_config).map(([k, v]) => (
+                        <div key={k}><span className="text-[#00ff88]">{k}</span>: {String(v)}</div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+                <div className="flex items-center gap-2 rounded-lg border border-[#00ff88]/20 bg-[#00ff88]/5 px-3 py-2 text-xs text-[#00ff88]">
+                  <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" />
+                  Ao clicar <strong className="mx-1">Aplicar ao bot</strong>, esta análise é registrada. A próxima análise saberá quais ajustes foram feitos e avaliará se funcionaram.
+                </div>
+              </div>
+            )}
+          </article>
+
+          {/* Analysis history */}
+          {(analysisHistory ?? []).length > 0 && (
+            <article className="cyber-surface p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <h2 className="text-sm font-semibold text-foreground">Histórico de análises</h2>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground">A IA usa este histórico para avaliar se suas sugestões anteriores funcionaram.</p>
+              <div className="space-y-2">
+                {(analysisHistory ?? []).map(item => (
+                  <HistoryCard key={item.id} item={item} />
+                ))}
+              </div>
+            </article>
           )}
-        </article>
+        </div>
       </section>
     </div>
   );
