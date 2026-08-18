@@ -56,15 +56,19 @@ export async function saveAnalysis(data: {
       JSON.stringify(data.config_before),
     ]
   );
-  return (result as { insertId: number }).insertId;
+  const insertId = (result as { insertId: number }).insertId;
+  console.log(`[saveAnalysis] insertId=${insertId}`);
+  return insertId;
 }
 
 export async function markAnalysisApplied(id: number, configAfter: Record<string, unknown>): Promise<void> {
   await ensureTable();
-  await getPool().query(
+  console.log(`[markAnalysisApplied] id=${id}`);
+  const [result] = await getPool().query(
     `UPDATE ai_analysis_log SET applied_at = NOW(), config_after = ? WHERE id = ?`,
     [JSON.stringify(configAfter), id]
   );
+  console.log(`[markAnalysisApplied] affectedRows=${(result as { affectedRows: number }).affectedRows}`);
 }
 
 // mysql2 auto-parses JSON columns when using pool.query(); handle both string and object

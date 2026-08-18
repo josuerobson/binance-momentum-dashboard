@@ -274,13 +274,15 @@ export default function AIAnalysisPage() {
 
   const handleApply = () => {
     if (!effective.momentum_window_secs) return;
+    console.log(`[handleApply] analysisId=${analysis?.analysisId ?? "null"}`);
     updateConfigMutation.mutate(effective);
-    // Mark this analysis as applied so the AI knows in future analyses
     if (analysis?.analysisId) {
       markAppliedMutation.mutate({
         analysisId: analysis.analysisId,
         configAfter: effective as unknown as Record<string, unknown>,
       });
+    } else {
+      console.warn("[handleApply] markApplied skipped — analysis state is null or analysisId=0");
     }
   };
 
