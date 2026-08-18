@@ -32,7 +32,36 @@ function repairAndParse(text: string): Record<string, unknown> | null {
   }
   // Also remove trailing commas before } or ]
   const fixed = chars.join("").replace(/,(\s*[}\]])/g, "$1");
-  try { return JSON.parse(fixed) as Record<string, unknown>; } catch { return null; }
+  try { return JSON.parse(fixed) as Record<string, unknown>; } catch { /* fall through */ }
+
+  // Last resort: regex field extraction — handles truncated JSON (hit token limit mid-response)
+  const extractStr = (key: string): string | undefined => {
+    const m = jsonStr.match(new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\[\\s\\S])*)"`));
+    return m ? m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t") : undefined;
+  };
+  const extractStrArr = (key: string): string[] => {
+    const m = jsonStr.match(new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)\\]`));
+    if (!m) return [];
+    const items: string[] = [];
+    const re = /"((?:[^"\\]|\\.)*)"/g;
+    let item;
+    while ((item = re.exec(m[1])) !== null) items.push(item[1]);
+    return items;
+  };
+  const analysisText = extractStr("analysis");
+  if (analysisText) {
+    return {
+      analysis: analysisText,
+      key_findings: extractStrArr("key_findings"),
+      red_flags: extractStrArr("red_flags"),
+      dont_change: extractStrArr("dont_change"),
+      confidence_level: extractStr("confidence_level") ?? "baixa",
+      rationale: extractStr("rationale") ?? "",
+      priority_changes: [],
+      suggested_config: {},
+    };
+  }
+  return null;
 }
 
 type Config = {

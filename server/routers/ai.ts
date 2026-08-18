@@ -215,12 +215,12 @@ export const aiRouter = router({
       try {
         console.log(`[ai.analyze] calling AI, provider=${provider?.name ?? "ENV"}, trades=${trades.length}`);
         if (provider) {
-          text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 3500);
+          text = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 8192);
         } else {
           const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-api-key": ENV.anthropicApiKey, "anthropic-version": "2023-06-01" },
-            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 3500, messages: [{ role: "user", content: prompt }] }),
+            body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 8192, messages: [{ role: "user", content: prompt }] }),
             signal: AbortSignal.timeout(45_000),
           });
           if (!res.ok) {
