@@ -18,11 +18,27 @@ const candidateSchema = z.object({
 
 export type ScannerCandidate = z.infer<typeof candidateSchema>;
 
+const responseSchema = z.object({
+  count: z.number(),
+  candidates: z.array(candidateSchema),
+  btc_momentum_pct: z.number().nullable().optional(),
+  btc_filter_ok: z.boolean().optional(),
+  btc_filter_enabled: z.boolean().optional(),
+  btc_filter_window_secs: z.number().optional(),
+  btc_min_momentum_pct: z.number().optional(),
+});
+
+const emptyResponse = {
+  count: 0,
+  candidates: [] as ScannerCandidate[],
+  btc_momentum_pct: null,
+  btc_filter_ok: true,
+  btc_filter_enabled: false,
+};
+
 export const scannerRouter = router({
   candidates: protectedProcedure.query(async () => {
-    if (!ENV.botApiBaseUrl || !ENV.dashboardApiKey) {
-      return { count: 0, candidates: [] as ScannerCandidate[] };
-    }
+    if (!ENV.botApiBaseUrl || !ENV.dashboardApiKey) return emptyResponse;
     try {
       const res = await fetch(
         `${ENV.botApiBaseUrl.replace(/\/$/, "")}/api/scanner/candidates`,
@@ -31,15 +47,13 @@ export const scannerRouter = router({
           signal: AbortSignal.timeout(5_000),
         }
       );
-      if (!res.ok) return { count: 0, candidates: [] as ScannerCandidate[] };
+      if (!res.ok) return emptyResponse;
       const data = await res.json();
-      const parsed = z
-        .object({ count: z.number(), candidates: z.array(candidateSchema) })
-        .safeParse(data);
-      if (!parsed.success) return { count: 0, candidates: [] as ScannerCandidate[] };
+      const parsed = responseSchema.safeParse(data);
+      if (!parsed.success) return emptyResponse;
       return parsed.data;
     } catch {
-      return { count: 0, candidates: [] as ScannerCandidate[] };
+      return emptyResponse;
     }
   }),
 });

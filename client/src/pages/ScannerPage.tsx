@@ -49,6 +49,9 @@ export default function ScannerPage() {
   const triggered = candidates.filter(c => c.proximity_score >= 1.0);
   const near = candidates.filter(c => c.proximity_score >= 0.5 && c.proximity_score < 1.0);
   const lastUpdate = dataUpdatedAt ? new Date(dataUpdatedAt) : null;
+  const btcMom: number | null = (data as { btc_momentum_pct?: number | null } | undefined)?.btc_momentum_pct ?? null;
+  const btcOk: boolean = (data as { btc_filter_ok?: boolean } | undefined)?.btc_filter_ok ?? true;
+  const btcFilterEnabled: boolean = (data as { btc_filter_enabled?: boolean } | undefined)?.btc_filter_enabled ?? false;
 
   return (
     <div className="page-enter">
@@ -65,6 +68,18 @@ export default function ScannerPage() {
           </div>
         }
       />
+
+      {btcFilterEnabled && (
+        <div className={`mb-4 flex items-center gap-3 rounded-xl border px-4 py-2.5 text-sm ${btcOk ? "border-[#00ff88]/25 bg-[#00ff88]/8 text-[#00ff88]" : "border-rose-400/25 bg-rose-400/10 text-rose-300"}`}>
+          <span className={`h-2 w-2 rounded-full shrink-0 ${btcOk ? "bg-[#00ff88] animate-pulse" : "bg-rose-400"}`} />
+          <span className="font-medium">Filtro BTC: {btcOk ? "OK — entradas liberadas" : "BLOQUEADO — BTC caindo"}</span>
+          {btcMom !== null && (
+            <span className={`ml-auto tabular-nums font-mono text-xs ${btcMom >= 0 ? "text-[#00ff88]" : "text-rose-300"}`}>
+              {btcMom >= 0 ? "+" : ""}{btcMom.toFixed(3)}%
+            </span>
+          )}
+        </div>
+      )}
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard

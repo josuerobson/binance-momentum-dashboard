@@ -155,6 +155,11 @@ export const paperRouter = router({
       position_size_pct: z.number().min(0.1).max(100),
       max_positions: z.number().int().min(1).max(50),
       paper_balance: z.number().min(0),
+      btc_filter_enabled: z.boolean().optional(),
+      btc_filter_window_secs: z.number().int().min(30).max(3600).optional(),
+      btc_min_momentum_pct: z.number().min(-10).max(10).optional(),
+      trailing_stop_enabled: z.boolean().optional(),
+      trailing_stop_distance_pct: z.number().min(0.1).max(50).optional(),
     }))
     .mutation(async ({ input }) => {
       requireBot();
