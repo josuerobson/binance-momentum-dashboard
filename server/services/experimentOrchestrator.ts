@@ -32,6 +32,8 @@ export type OrchestratorState = {
   phase: "idle" | "collecting_suggestions" | "experiment_running" | "analyzing";
   currentCycleId: number;
   cycleStartedAt: number | null;
+  longRunStartedAt: number | null;
+  longRunDeadlineAt: number | null;
   history: ExperimentCycleSummary[];
   lastError: string | null;
   minTradesPerSlot: number;
@@ -108,6 +110,8 @@ class ExperimentOrchestrator {
     phase: "idle",
     currentCycleId: 0,
     cycleStartedAt: null,
+    longRunStartedAt: null,
+    longRunDeadlineAt: null,
     history: [],
     lastError: null,
     minTradesPerSlot: 8,
@@ -243,6 +247,31 @@ class ExperimentOrchestrator {
   }
 
   stopAutoMode() { this.state.autoMode = false; }
+
+  async startLongRun(slots: { id: number; label: string; ai_provider: string; config: SlotConfig }[]): Promise<{ cycleId: number }> {
+    this.state.lastError = null;
+    await fetchBot<{ ok: boolean }>("/api/experiment/reset", {
+      method: "POST",
+      body: JSON.stringify({ balance: 10000 }),
+    });
+    const result = await fetchBot<{ cycle_id: number }>("/api/experiment/start", {
+      method: "POST",
+      body: JSON.stringify({ balance: 10000, slots }),
+    });
+    const now = Date.now();
+    this.state.longRunStartedAt = now;
+    this.state.longRunDeadlineAt = now + 30 * 24 * 60 * 60 * 1000;
+    this.state.currentCycleId = result.cycle_id;
+    this.state.cycleStartedAt = now;
+    this.state.running = true;
+    this.state.phase = "experiment_running";
+    return { cycleId: result.cycle_id };
+  }
+
+  clearLongRun() {
+    this.state.longRunStartedAt = null;
+    this.state.longRunDeadlineAt = null;
+  }
 
   getBestConfig(): { config: SlotConfig; fitness: number; provider: string } | null {
     let best: { config: SlotConfig; fitness: number; provider: string } | null = null;
