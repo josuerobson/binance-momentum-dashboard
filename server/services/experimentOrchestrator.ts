@@ -1,6 +1,7 @@
 import { ENV } from "../_core/env";
 import { ExperimentCycleSummary, SlotConfig } from "./aiAdvisors";
 import { AIProvider, getAssignedProviders, callProvider } from "./aiRegistry";
+import { getPrompt } from "./promptRegistry";
 
 export type SlotStatus = {
   id: number;
@@ -50,37 +51,14 @@ async function fetchBot<T>(path: string, opts?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// ─── AI advisor system prompt ────────────────────────────────────────────────
+// ─── AI advisor prompts (loaded from DB, editable via Integração IA) ─────────
 
-const ADVISOR_SYSTEM = `You are an expert algorithmic trading parameter optimizer for a momentum scanner bot on Binance mainnet.
-You receive the history of paper trading experiments (parallel A/B tests with different configs) and suggest the next optimal config.
-Each config must balance signal quality (momentum threshold), risk management (stop/take-profit), and capital efficiency.
-Return ONLY a raw JSON object (no markdown, no backticks, no explanation outside JSON).`;
-
-const CONFIG_SCHEMA = `{
-  "momentum_trigger_pct": <float 1.5-6.0>,
-  "momentum_window_secs": <int 30-600>,
-  "volume_surge_multiplier": <float 1.2-5.0>,
-  "stop_loss_pct": <float 0.5-4.0>,
-  "take_profit_pct": <float 1.0-15.0>,
-  "position_size_pct": <float 2.0-20.0>,
-  "max_positions": <int 1-5>,
-  "trailing_stop_enabled": <boolean>,
-  "trailing_stop_distance_pct": <float 0.5-5.0>,
-  "btc_filter_enabled": <boolean>,
-  "btc_filter_window_secs": <int 60-600>,
-  "btc_min_momentum_pct": <float -3.0-0.0>,
-  "paper_balance": 10000,
-  "max_spread_pct": 0.5,
-  "min_24h_volume_usdt": 5000000,
-  "reasoning": "<2-3 sentences explaining why>"
-}`;
-
-function buildPrompt(history: ExperimentCycleSummary[]): string {
+async function buildPrompt(history: ExperimentCycleSummary[]): Promise<string> {
+  const [schema] = await Promise.all([getPrompt("experiment_advisor_schema")]);
   const historyText = history.length === 0
     ? "No experiments yet. Use reasonable starting parameters."
     : `Past cycles (newest first):\n${JSON.stringify(history.slice(-5), null, 2)}`;
-  return `${historyText}\n\nSuggest the next parameter set. Optimize for fitness_score = win_rate × avg_pnl / max_drawdown. Return only:\n${CONFIG_SCHEMA}`;
+  return `${historyText}\n\nSuggest the next parameter set. Optimize for fitness_score = win_rate × avg_pnl / max_drawdown. Return only:\n${schema}`;
 }
 
 function parseConfig(text: string): SlotConfig | null {
@@ -112,7 +90,11 @@ function parseConfig(text: string): SlotConfig | null {
 
 async function askProvider(provider: AIProvider, history: ExperimentCycleSummary[]): Promise<SlotConfig | null> {
   try {
-    const text = await callProvider(provider, [{ role: "user", content: buildPrompt(history) }], ADVISOR_SYSTEM, 1024);
+    const [userPrompt, systemPrompt] = await Promise.all([
+      buildPrompt(history),
+      getPrompt("experiment_advisor_system"),
+    ]);
+    const text = await callProvider(provider, [{ role: "user", content: userPrompt }], systemPrompt, 1024);
     return parseConfig(text);
   } catch { return null; }
 }

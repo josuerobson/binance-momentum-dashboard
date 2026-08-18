@@ -13,6 +13,7 @@ import {
   toPublic,
   updateProvider,
 } from "../services/aiRegistry";
+import { listPrompts, setPrompt, resetPrompt, PROMPT_DEFAULTS } from "../services/promptRegistry";
 
 const providerTypeEnum = z.enum(["claude", "openai", "gemini"]);
 
@@ -119,6 +120,43 @@ export const aiIntegrationRouter = router({
     .mutation(async ({ input }) => {
       try {
         await setAssignment(input.functionId, input.providerIds);
+        return { ok: true };
+      } catch (e) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
+      }
+    }),
+
+  // ─── Prompt management ───────────────────────────────────────────────────
+
+  listPrompts: protectedProcedure.query(async () => {
+    try {
+      return listPrompts();
+    } catch (e) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
+    }
+  }),
+
+  updatePrompt: protectedProcedure
+    .input(z.object({
+      id: z.string().refine(id => id in PROMPT_DEFAULTS, { message: "Prompt desconhecido" }),
+      content: z.string().min(10).max(20000),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        await setPrompt(input.id, input.content);
+        return { ok: true };
+      } catch (e) {
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
+      }
+    }),
+
+  resetPrompt: protectedProcedure
+    .input(z.object({
+      id: z.string().refine(id => id in PROMPT_DEFAULTS, { message: "Prompt desconhecido" }),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        await resetPrompt(input.id);
         return { ok: true };
       } catch (e) {
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });

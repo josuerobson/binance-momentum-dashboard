@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
-  Bot, CheckCircle2, ChevronDown, ChevronRight, Cpu, FlaskConical,
-  Loader2, Plus, Save, Settings2, Sparkles, Trash2, XCircle, Zap,
+  Bot, CheckCircle2, ChevronDown, ChevronRight, Cpu, FileText, FlaskConical,
+  Loader2, Plus, RefreshCw, Save, Settings2, Sparkles, Trash2, XCircle, Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/PageHeader";
@@ -479,6 +479,91 @@ function AssignmentRow({
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 
+// ─── Prompt editor component ──────────────────────────────────────────────────
+
+function PromptEditor({ prompt }: { prompt: { id: string; label: string; description: string; content: string; default_content: string; updated_at: string } }) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState(prompt.content);
+  const [dirty, setDirty] = useState(false);
+  const utils = trpc.useUtils();
+
+  const saveMutation = trpc.aiIntegration.updatePrompt.useMutation({
+    onSuccess: () => { toast.success("Prompt salvo."); setDirty(false); utils.aiIntegration.listPrompts.invalidate(); },
+    onError: e => toast.error(e.message),
+  });
+
+  const resetMutation = trpc.aiIntegration.resetPrompt.useMutation({
+    onSuccess: () => {
+      toast.success("Prompt restaurado ao padrão.");
+      setContent(prompt.default_content);
+      setDirty(false);
+      utils.aiIntegration.listPrompts.invalidate();
+    },
+    onError: e => toast.error(e.message),
+  });
+
+  const isCustom = prompt.content !== prompt.default_content;
+
+  return (
+    <div className="rounded-xl border border-white/[.07] bg-white/[.02]">
+      <button
+        className="flex w-full items-center gap-3 px-4 py-3 text-left"
+        onClick={() => setOpen(o => !o)}
+      >
+        <FileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-foreground">{prompt.label}</span>
+            {isCustom && (
+              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">Personalizado</span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground truncate">{prompt.description}</p>
+        </div>
+        {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+      </button>
+
+      {open && (
+        <div className="border-t border-white/[.06] px-4 pb-4 pt-3 space-y-3">
+          <textarea
+            className="w-full rounded-lg border border-white/10 bg-black/20 p-3 font-mono text-xs text-muted-foreground focus:border-[#00ff88]/30 focus:outline-none focus:ring-1 focus:ring-[#00ff88]/20 resize-y"
+            rows={14}
+            value={content}
+            onChange={e => { setContent(e.target.value); setDirty(true); }}
+            spellCheck={false}
+          />
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              className="gap-1.5 bg-[#00ff88] text-black text-xs hover:bg-[#00ff88]/90"
+              disabled={!dirty || saveMutation.isPending}
+              onClick={() => saveMutation.mutate({ id: prompt.id, content })}
+            >
+              {saveMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              Salvar
+            </Button>
+            {isCustom && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5 text-xs text-muted-foreground"
+                disabled={resetMutation.isPending}
+                onClick={() => { if (confirm("Restaurar o prompt ao conteúdo padrão?")) resetMutation.mutate({ id: prompt.id }); }}
+              >
+                {resetMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                Restaurar padrão
+              </Button>
+            )}
+            {dirty && <span className="text-[11px] text-amber-400">Não salvo</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
 export default function AIIntegrationPage() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -488,6 +573,8 @@ export default function AIIntegrationPage() {
 
   const { data: assignmentsData, refetch: refetchAssignments } =
     trpc.aiIntegration.getAssignments.useQuery();
+
+  const { data: promptList } = trpc.aiIntegration.listPrompts.useQuery();
 
   const addMutation = trpc.aiIntegration.addProvider.useMutation({
     onSuccess: () => { toast.success("Provedor adicionado."); setShowAddForm(false); refetchProviders(); },
@@ -639,6 +726,27 @@ export default function AIIntegrationPage() {
             onSave={ids => assignMutation.mutate({ functionId: fnId as "market_analysis" | "experiment_advisor", providerIds: ids })}
           />
         ))}
+      </section>
+
+      {/* ── Prompt management ────────────────────────────────────────────── */}
+      <section className="mt-8 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Prompts do Sistema</h2>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            Edite as instruções enviadas à IA em cada funcionalidade. Alterações têm efeito imediato na próxima chamada.
+          </p>
+        </div>
+        <div className="space-y-2">
+          {(promptList ?? []).map(p => (
+            <PromptEditor key={p.id} prompt={p} />
+          ))}
+          {(promptList ?? []).length === 0 && (
+            <div className="rounded-xl border border-white/[.06] py-8 text-center text-sm text-muted-foreground">
+              <FileText className="mx-auto mb-2 h-6 w-6 opacity-30" />
+              Carregando prompts…
+            </div>
+          )}
+        </div>
       </section>
 
       {/* ── Tips ────────────────────────────────────────────────────────── */}

@@ -4,6 +4,7 @@ import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
 import { callProvider, getAssignedProviders } from "../services/aiRegistry";
 import { saveAnalysis, markAnalysisApplied, getRecentAnalyses, type AnalysisRecord } from "../services/aiAnalysisLog";
+import { getPrompt } from "../services/promptRegistry";
 import type { PaperTrade } from "./paper";
 
 const suggestedConfigSchema = z.object({
@@ -91,7 +92,7 @@ function buildHistorySection(history: AnalysisRecord[], allTrades: PaperTrade[])
   return lines.join("\n");
 }
 
-function buildPrompt(trades: PaperTrade[], currentConfig: unknown, history: AnalysisRecord[]): string {
+async function buildPrompt(trades: PaperTrade[], currentConfig: unknown, history: AnalysisRecord[]): Promise<string> {
   const total = trades.length;
   const winTrades = trades.filter(t => t.pnl_usdt > 0);
   const lossTrades = trades.filter(t => t.pnl_usdt <= 0);
@@ -151,24 +152,12 @@ function buildPrompt(trades: PaperTrade[], currentConfig: unknown, history: Anal
     .join("\n");
 
   const historySection = buildHistorySection(history, trades);
+  const [intro, request] = await Promise.all([
+    getPrompt("market_analysis_intro"),
+    getPrompt("market_analysis_request"),
+  ]);
 
-  return `Você é um analista quantitativo sênior especializado em estratégias de momentum intraday em criptomoedas. Seu papel é analisar com rigor os resultados de um bot de paper trading e sugerir otimizações baseadas em evidências — não em intuição.
-
-## CONTEXTO DA ESTRATÉGIA
-- Tipo: Momentum breakout em pares spot da Binance (dados de mercado reais, execução simulada)
-- Funcionamento: O bot escaneia todos os pares USDT da Binance e entra em posições quando detecta:
-  (1) momentum de preço acima do gatilho configurado na janela de tempo definida
-  (2) surto de volume acima do multiplicador configurado
-  (3) spread dentro do limite configurado
-  (4) opcionalmente: filtro de momentum positivo no BTC
-- Saída: Take Profit (TP), Stop Loss (SL) ou Trailing Stop (TRAILING)
-- Objetivo de longo prazo: validar a estratégia em paper trading até atingir taxa de acerto e expectância seguros para operar com capital real. Prioridade é ROBUSTEZ, não P&L máximo a curto prazo.
-- Interdependências dos parâmetros:
-  • Se SL aumenta → position_size_pct deve diminuir proporcionalmente (risco $ constante)
-  • Se TP/SL ratio < 1.5:1 → win rate precisa ser > 40% para estratégia ser positiva
-  • Se momentum_window aumenta → menos sinais, mas de maior qualidade
-  • Se btc_min_momentum_pct > 0 → filtra operações em momentos de queda do mercado ampliado
-  • Se trailing_stop_distance < stop_loss → o trailing age como SL antecipado (evitar)
+  return `${intro}
 ${historySection}
 ## CONFIGURAÇÃO ATUAL DO BOT
 ${JSON.stringify(currentConfig, null, 2)}
@@ -198,32 +187,7 @@ ${symbolLines || "  Nenhum símbolo ainda"}
 ## ÚLTIMOS ${Math.min(30, total)} TRADES (do mais recente ao mais antigo)
 ${recentTrades || "Nenhuma operação registrada ainda."}
 
-## SOLICITAÇÃO DE ANÁLISE
-Analise estes dados com rigor quantitativo. Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON:
-
-{
-  "analysis": "análise detalhada em português — avalie: (1) se a expectância é positiva e o porquê, (2) padrão de saídas TP vs SL vs Trailing, (3) qual parâmetro provavelmente está causando mais perdas, (4) se o tamanho da amostra permite conclusões confiáveis, (5) se as análises anteriores produziram melhoria mensurável",
-  "key_findings": ["observação objetiva 1", "observação objetiva 2", "observação objetiva 3"],
-  "red_flags": ["problema crítico que precisa de ação imediata — ou array vazio se não houver"],
-  "dont_change": ["param1", "param2"],
-  "priority_changes": [
-    {"param": "nome_do_parametro", "from": <valor_atual>, "to": <valor_sugerido>, "reason": "justificativa em 1 frase"}
-  ],
-  "confidence_level": "baixa|média|alta",
-  "suggested_config": {
-    "momentum_window_secs": <número>,
-    "momentum_trigger_pct": <número>,
-    "volume_surge_multiplier": <número>,
-    "max_spread_pct": <número>,
-    "min_24h_volume_usdt": <número>,
-    "stop_loss_pct": <número>,
-    "take_profit_pct": <número>,
-    "position_size_pct": <número>,
-    "max_positions": <número>,
-    "paper_balance": <número>
-  },
-  "rationale": "justificativa dos ajustes mais importantes — explique o raciocínio quantitativo por trás de cada mudança principal e como elas interagem entre si"
-}`;
+${request}`;
 }
 
 export const aiRouter = router({
@@ -245,7 +209,7 @@ export const aiRouter = router({
 
       const trades = input.trades as PaperTrade[];
       const history = await getRecentAnalyses(3).catch(() => [] as AnalysisRecord[]);
-      const prompt = buildPrompt(trades, input.currentConfig, history);
+      const prompt = await buildPrompt(trades, input.currentConfig, history);
 
       let text: string;
       try {
