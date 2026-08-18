@@ -1,4 +1,4 @@
-import { Bot, CheckCircle, Clock, Loader2, Sliders, TrendingDown, TrendingUp } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle, Clock, Loader2, Sliders, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/format";
@@ -111,12 +111,30 @@ export default function AIAnalysisPage() {
   const { data: analysisHistory, refetch: refetchHistory } = trpc.ai.getHistory.useQuery();
 
   const [localConfig, setLocalConfig] = useState<Partial<Config>>({});
-  const [analysis, setAnalysis] = useState<{ analysisId: number; analysis: string; rationale: string; suggested_config: Partial<Config> } | null>(null);
+  const [analysis, setAnalysis] = useState<{
+    analysisId: number;
+    analysis: string;
+    key_findings: string[];
+    red_flags: string[];
+    dont_change: string[];
+    priority_changes: { param: string; from: number | string; to: number | string; reason: string }[];
+    confidence_level: string;
+    rationale: string;
+    suggested_config: Partial<Config>;
+  } | null>(null);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved">("idle");
 
   const analyzeMutation = trpc.ai.analyze.useMutation({
     onSuccess: data => {
-      setAnalysis({ ...data, suggested_config: data.suggested_config as Partial<Config> });
+      setAnalysis({
+        ...data,
+        key_findings: data.key_findings ?? [],
+        red_flags: data.red_flags ?? [],
+        dont_change: data.dont_change ?? [],
+        priority_changes: (data.priority_changes ?? []) as { param: string; from: number | string; to: number | string; reason: string }[],
+        confidence_level: data.confidence_level ?? "baixa",
+        suggested_config: data.suggested_config as Partial<Config>,
+      });
       if (data.suggested_config && Object.keys(data.suggested_config).length > 0) {
         setLocalConfig(prev => ({ ...prev, ...data.suggested_config }));
       }
@@ -284,26 +302,100 @@ export default function AIAnalysisPage() {
 
             {analysis && (
               <div className="space-y-5">
+                {/* Confidence + red flags */}
+                <div className="flex flex-wrap gap-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold border ${
+                    analysis.confidence_level === "alta" ? "bg-[#00ff88]/10 border-[#00ff88]/30 text-[#00ff88]"
+                    : analysis.confidence_level === "média" ? "bg-amber-400/10 border-amber-400/30 text-amber-400"
+                    : "bg-rose-400/10 border-rose-400/30 text-rose-400"
+                  }`}>
+                    <Zap className="h-3 w-3" />
+                    Confiança {analysis.confidence_level}
+                  </span>
+                </div>
+
+                {analysis.red_flags.length > 0 && (
+                  <section className="rounded-lg border border-rose-400/25 bg-rose-400/8 p-3">
+                    <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-rose-400">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Alertas críticos
+                    </h3>
+                    <ul className="space-y-1">
+                      {analysis.red_flags.map((f, i) => (
+                        <li key={i} className="text-sm text-rose-300 flex gap-2"><span className="flex-shrink-0">⚠</span>{f}</li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
+                {analysis.key_findings.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-sky-400">Observações-chave</h3>
+                    <ul className="space-y-1.5">
+                      {analysis.key_findings.map((f, i) => (
+                        <li key={i} className="flex gap-2 text-sm text-muted-foreground">
+                          <span className="text-sky-400 flex-shrink-0">→</span>{f}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+
                 <section>
-                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#00ff88]">Análise</h3>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-[#00ff88]">Análise completa</h3>
                   <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.analysis}</p>
                 </section>
+
+                {analysis.priority_changes.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">Ajustes prioritários</h3>
+                    <div className="space-y-2">
+                      {analysis.priority_changes.map((c, i) => (
+                        <div key={i} className="rounded-lg border border-white/[.07] bg-white/[.02] px-3 py-2 text-xs">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-mono text-[#00ff88]">{c.param}</span>
+                            <span className="text-muted-foreground">{String(c.from)}</span>
+                            <span className="text-amber-400">→</span>
+                            <span className="font-semibold text-foreground">{String(c.to)}</span>
+                          </div>
+                          <p className="text-muted-foreground">{c.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {analysis.dont_change.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Não alterar</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {analysis.dont_change.map(p => (
+                        <span key={p} className="rounded-md border border-white/[.08] bg-white/[.03] px-2 py-0.5 font-mono text-xs text-muted-foreground">{p}</span>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
                 {analysis.rationale && (
                   <section>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">Justificativa dos ajustes</h3>
                     <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{analysis.rationale}</p>
                   </section>
                 )}
+
                 {analysis.suggested_config && Object.keys(analysis.suggested_config).length > 0 && (
                   <section>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Parâmetros sugeridos (aplicados ao editor acima)</h3>
                     <div className="rounded-lg border border-white/[.07] bg-white/[.02] p-3 text-xs font-mono text-muted-foreground">
                       {Object.entries(analysis.suggested_config).map(([k, v]) => (
-                        <div key={k}><span className="text-[#00ff88]">{k}</span>: {String(v)}</div>
+                        <div key={k}>
+                          <span className={analysis.dont_change.includes(k) ? "text-slate-500" : "text-[#00ff88]"}>{k}</span>: {String(v)}
+                          {analysis.dont_change.includes(k) && <span className="ml-2 text-slate-600">(mantido)</span>}
+                        </div>
                       ))}
                     </div>
                   </section>
                 )}
+
                 <div className="flex items-center gap-2 rounded-lg border border-[#00ff88]/20 bg-[#00ff88]/5 px-3 py-2 text-xs text-[#00ff88]">
                   <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" />
                   Ao clicar <strong className="mx-1">Aplicar ao bot</strong>, esta análise é registrada. A próxima análise saberá quais ajustes foram feitos e avaliará se funcionaram.

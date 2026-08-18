@@ -21,6 +21,22 @@ const suggestedConfigSchema = z.object({
 
 export type SuggestedConfig = z.infer<typeof suggestedConfigSchema>;
 
+const aiResponseSchema = z.object({
+  analysis: z.string(),
+  key_findings: z.array(z.string()).optional(),
+  red_flags: z.array(z.string()).optional(),
+  dont_change: z.array(z.string()).optional(),
+  priority_changes: z.array(z.object({
+    param: z.string(),
+    from: z.union([z.number(), z.string()]),
+    to: z.union([z.number(), z.string()]),
+    reason: z.string(),
+  })).optional(),
+  confidence_level: z.enum(["baixa", "média", "alta"]).optional(),
+  suggested_config: suggestedConfigSchema,
+  rationale: z.string(),
+});
+
 function buildHistorySection(history: AnalysisRecord[], allTrades: PaperTrade[]): string {
   if (history.length === 0) return "";
 
@@ -77,48 +93,123 @@ function buildHistorySection(history: AnalysisRecord[], allTrades: PaperTrade[])
 
 function buildPrompt(trades: PaperTrade[], currentConfig: unknown, history: AnalysisRecord[]): string {
   const total = trades.length;
-  const wins = trades.filter(t => t.pnl_usdt > 0).length;
+  const winTrades = trades.filter(t => t.pnl_usdt > 0);
+  const lossTrades = trades.filter(t => t.pnl_usdt <= 0);
+  const wins = winTrades.length;
+  const losses = lossTrades.length;
   const totalPnl = trades.reduce((s, t) => s + t.pnl_usdt, 0);
-  const avgDuration = total
-    ? Math.round(trades.reduce((s, t) => s + t.duration_ms, 0) / total / 1000)
-    : 0;
-  const tpCount = trades.filter(t => t.exit_reason === "TP").length;
-  const slCount = trades.filter(t => t.exit_reason === "SL").length;
+  const winRate = total > 0 ? (wins / total) * 100 : 0;
+
+  const avgWin = wins > 0 ? winTrades.reduce((s, t) => s + t.pnl_pct, 0) / wins : 0;
+  const avgLoss = losses > 0 ? Math.abs(lossTrades.reduce((s, t) => s + t.pnl_pct, 0) / losses) : 0;
+  const expectancy = (winRate / 100) * avgWin - ((100 - winRate) / 100) * avgLoss;
+
+  const tpTrades = trades.filter(t => t.exit_reason === "TP");
+  const slTrades = trades.filter(t => t.exit_reason === "SL");
+  const trailTrades = trades.filter(t => t.exit_reason === "TRAILING");
+
+  const avgDurAll = total ? Math.round(trades.reduce((s, t) => s + t.duration_ms, 0) / total / 1000) : 0;
+  const avgDurTP = tpTrades.length ? Math.round(tpTrades.reduce((s, t) => s + t.duration_ms, 0) / tpTrades.length / 1000) : 0;
+  const avgDurSL = slTrades.length ? Math.round(slTrades.reduce((s, t) => s + t.duration_ms, 0) / slTrades.length / 1000) : 0;
+
+  const maxWin = wins > 0 ? Math.max(...winTrades.map(t => t.pnl_pct)) : 0;
+  const maxLoss = losses > 0 ? Math.min(...lossTrades.map(t => t.pnl_pct)) : 0;
+
+  // Consecutive loss streak
+  let maxConsecLoss = 0, consecLoss = 0;
+  for (const t of trades) {
+    if (t.pnl_usdt <= 0) { consecLoss++; maxConsecLoss = Math.max(maxConsecLoss, consecLoss); }
+    else consecLoss = 0;
+  }
+
+  // Per-symbol breakdown
+  const bySymbol: Record<string, { count: number; wins: number; pnl: number }> = {};
+  for (const t of trades) {
+    if (!bySymbol[t.symbol]) bySymbol[t.symbol] = { count: 0, wins: 0, pnl: 0 };
+    bySymbol[t.symbol].count++;
+    if (t.pnl_usdt > 0) bySymbol[t.symbol].wins++;
+    bySymbol[t.symbol].pnl += t.pnl_usdt;
+  }
+  const symbolLines = Object.entries(bySymbol)
+    .sort((a, b) => b[1].pnl - a[1].pnl)
+    .map(([sym, s]) => `  ${sym}: ${s.count} trades | win rate ${((s.wins / s.count) * 100).toFixed(0)}% | P&L ${s.pnl >= 0 ? "+" : ""}${s.pnl.toFixed(2)} USDT`)
+    .join("\n");
+
+  const confidenceHint = total < 10
+    ? "⚠️ AMOSTRA MUITO PEQUENA (< 10 trades): seja extremamente conservador. Máximo 1-2 ajustes pequenos. NÃO faça mudanças drásticas."
+    : total < 30
+    ? "⚠️ Amostra pequena (< 30 trades): seja conservador. Prefira ajustes incrementais e avalie os resultados antes de mudanças maiores."
+    : total < 100
+    ? "Amostra moderada (< 100 trades): ajustes razoáveis são permitidos, mas evite otimização excessiva (overfitting)."
+    : "Amostra robusta (100+ trades): análise estatística mais confiável. Ajustes mais assertivos são justificados.";
 
   const recentTrades = trades
     .slice(0, 30)
-    .map(t =>
-      `${t.symbol} | entrada: ${t.entry_price.toFixed(6)} | saída: ${t.exit_price.toFixed(6)} | P&L: ${t.pnl_pct.toFixed(2)}% (${t.pnl_usdt.toFixed(2)} USDT) | motivo: ${t.exit_reason} | duração: ${Math.round(t.duration_ms / 1000)}s | janela: ${t.momentum_window_secs}s | gatilho: ${t.momentum_trigger_pct}% | surto: ${t.volume_surge_multiplier}x | SL: ${t.stop_loss_pct}% | TP: ${t.take_profit_pct}%`
+    .map((t, i) =>
+      `#${i + 1} ${t.symbol} | ${t.exit_reason} | P&L: ${t.pnl_pct >= 0 ? "+" : ""}${t.pnl_pct.toFixed(2)}% (${t.pnl_usdt >= 0 ? "+" : ""}${t.pnl_usdt.toFixed(2)} USDT) | duração: ${Math.round(t.duration_ms / 1000)}s | janela: ${t.momentum_window_secs}s | gatilho: ${t.momentum_trigger_pct}% | surto: ${t.volume_surge_multiplier}x | SL cfg: ${t.stop_loss_pct}% | TP cfg: ${t.take_profit_pct}%`
     )
     .join("\n");
 
   const historySection = buildHistorySection(history, trades);
 
-  return `Você é um analista de trading quantitativo especializado em estratégias de momentum em criptomoedas. Analise os dados de um bot de paper trading (simulação com dados reais da Binance) e forneça recomendações para otimizar os parâmetros.
+  return `Você é um analista quantitativo sênior especializado em estratégias de momentum intraday em criptomoedas. Seu papel é analisar com rigor os resultados de um bot de paper trading e sugerir otimizações baseadas em evidências — não em intuição.
+
+## CONTEXTO DA ESTRATÉGIA
+- Tipo: Momentum breakout em pares spot da Binance (dados de mercado reais, execução simulada)
+- Funcionamento: O bot escaneia todos os pares USDT da Binance e entra em posições quando detecta:
+  (1) momentum de preço acima do gatilho configurado na janela de tempo definida
+  (2) surto de volume acima do multiplicador configurado
+  (3) spread dentro do limite configurado
+  (4) opcionalmente: filtro de momentum positivo no BTC
+- Saída: Take Profit (TP), Stop Loss (SL) ou Trailing Stop (TRAILING)
+- Objetivo de longo prazo: validar a estratégia em paper trading até atingir taxa de acerto e expectância seguros para operar com capital real. Prioridade é ROBUSTEZ, não P&L máximo a curto prazo.
+- Interdependências dos parâmetros:
+  • Se SL aumenta → position_size_pct deve diminuir proporcionalmente (risco $ constante)
+  • Se TP/SL ratio < 1.5:1 → win rate precisa ser > 40% para estratégia ser positiva
+  • Se momentum_window aumenta → menos sinais, mas de maior qualidade
+  • Se btc_min_momentum_pct > 0 → filtra operações em momentos de queda do mercado ampliado
+  • Se trailing_stop_distance < stop_loss → o trailing age como SL antecipado (evitar)
 ${historySection}
-## Configuração atual do bot
+## CONFIGURAÇÃO ATUAL DO BOT
 ${JSON.stringify(currentConfig, null, 2)}
 
-## Estatísticas gerais (${total} operações)
-- Taxa de acerto: ${total > 0 ? ((wins / total) * 100).toFixed(1) : 0}% (${wins} ganhos / ${total - wins} perdas)
-- P&L total: ${totalPnl.toFixed(2)} USDT
-- Take Profit atingido: ${tpCount} vezes
-- Stop Loss atingido: ${slCount} vezes
-- Duração média: ${avgDuration}s
+## ESTATÍSTICAS COMPUTADAS (${total} operações)
+${confidenceHint}
 
-## Últimas ${Math.min(30, total)} operações
+### Resumo geral
+- Win rate: ${winRate.toFixed(1)}% (${wins} ganhos / ${losses} perdas)
+- P&L total: ${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)} USDT
+- P&L médio por trade vencedor: +${avgWin.toFixed(2)}%
+- P&L médio por trade perdedor: -${avgLoss.toFixed(2)}%
+- Expectância por trade: ${expectancy >= 0 ? "+" : ""}${expectancy.toFixed(3)}% (positivo = estratégia lucrativa no longo prazo)
+- Maior ganho individual: +${maxWin.toFixed(2)}%
+- Maior perda individual: ${maxLoss.toFixed(2)}%
+- Sequência máxima de perdas consecutivas: ${maxConsecLoss}
+
+### Por tipo de saída
+- Take Profit (TP): ${tpTrades.length} trades | duração média: ${avgDurTP}s
+- Stop Loss (SL): ${slTrades.length} trades | duração média: ${avgDurSL}s
+- Trailing Stop: ${trailTrades.length} trades
+- Duração média geral: ${avgDurAll}s
+
+### Performance por símbolo
+${symbolLines || "  Nenhum símbolo ainda"}
+
+## ÚLTIMOS ${Math.min(30, total)} TRADES (do mais recente ao mais antigo)
 ${recentTrades || "Nenhuma operação registrada ainda."}
 
-## Solicitação
-Com base nesses dados e no histórico de análises anteriores (se houver):
-1. Avalie se as sugestões anteriores tiveram o efeito esperado nos trades subsequentes.
-2. Analise o que está funcionando e o que não está na estratégia atual.
-3. Identifique padrões (ex: qual janela de tempo produz mais acertos, se o stop está muito apertado, etc).
-4. Sugira ajustes específicos e justificados nos parâmetros.
+## SOLICITAÇÃO DE ANÁLISE
+Analise estes dados com rigor quantitativo. Responda SOMENTE com JSON válido, sem markdown, sem texto fora do JSON:
 
-Responda SOMENTE com JSON válido neste formato exato (sem markdown, sem texto fora do JSON):
 {
-  "analysis": "análise em português (3-5 parágrafos)",
+  "analysis": "análise detalhada em português — avalie: (1) se a expectância é positiva e o porquê, (2) padrão de saídas TP vs SL vs Trailing, (3) qual parâmetro provavelmente está causando mais perdas, (4) se o tamanho da amostra permite conclusões confiáveis, (5) se as análises anteriores produziram melhoria mensurável",
+  "key_findings": ["observação objetiva 1", "observação objetiva 2", "observação objetiva 3"],
+  "red_flags": ["problema crítico que precisa de ação imediata — ou array vazio se não houver"],
+  "dont_change": ["param1", "param2"],
+  "priority_changes": [
+    {"param": "nome_do_parametro", "from": <valor_atual>, "to": <valor_sugerido>, "reason": "justificativa em 1 frase"}
+  ],
+  "confidence_level": "baixa|média|alta",
   "suggested_config": {
     "momentum_window_secs": <número>,
     "momentum_trigger_pct": <número>,
@@ -131,7 +222,7 @@ Responda SOMENTE com JSON válido neste formato exato (sem markdown, sem texto f
     "max_positions": <número>,
     "paper_balance": <número>
   },
-  "rationale": "justificativa dos ajustes (2-3 parágrafos)"
+  "rationale": "justificativa dos ajustes mais importantes — explique o raciocínio quantitativo por trás de cada mudança principal e como elas interagem entre si"
 }`;
 }
 
@@ -178,11 +269,13 @@ export const aiRouter = router({
       // Strip markdown code fences that some models add despite instructions
       const stripped = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
 
-      let parsed: { analysis: string; suggested_config: SuggestedConfig; rationale: string };
+      let parsed: z.infer<typeof aiResponseSchema>;
       try {
-        parsed = JSON.parse(stripped);
+        const raw = JSON.parse(stripped);
+        const validation = aiResponseSchema.safeParse(raw);
+        parsed = validation.success ? validation.data : { ...raw, suggested_config: raw.suggested_config ?? {}, analysis: raw.analysis ?? stripped, rationale: raw.rationale ?? "" };
       } catch {
-        parsed = { analysis: stripped, suggested_config: {}, rationale: "" };
+        parsed = { analysis: stripped, suggested_config: {}, rationale: "", confidence_level: "baixa" };
       }
 
       const configValidation = suggestedConfigSchema.safeParse(parsed.suggested_config ?? {});
@@ -207,6 +300,11 @@ export const aiRouter = router({
       return {
         analysisId,
         analysis: parsed.analysis ?? "",
+        key_findings: parsed.key_findings ?? [],
+        red_flags: parsed.red_flags ?? [],
+        dont_change: parsed.dont_change ?? [],
+        priority_changes: parsed.priority_changes ?? [],
+        confidence_level: parsed.confidence_level ?? "baixa",
         rationale: parsed.rationale ?? "",
         suggested_config: validConfig,
         raw: text,
