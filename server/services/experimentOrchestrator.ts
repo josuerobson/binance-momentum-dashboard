@@ -268,6 +268,20 @@ class ExperimentOrchestrator {
     return { cycleId: result.cycle_id };
   }
 
+  async recoverLongRun(slots: { id: number; label: string; ai_provider: string; config: SlotConfig }[]): Promise<{ cycleId: number }> {
+    // Re-sends slot configs to the bot after a bot restart without resetting balance or timestamps.
+    this.state.lastError = null;
+    const result = await fetchBot<{ cycle_id: number }>("/api/experiment/start", {
+      method: "POST",
+      body: JSON.stringify({ balance: 10000, slots }),
+    });
+    this.state.currentCycleId = result.cycle_id;
+    this.state.cycleStartedAt = this.state.longRunStartedAt ?? Date.now();
+    this.state.running = true;
+    this.state.phase = "experiment_running";
+    return { cycleId: result.cycle_id };
+  }
+
   clearLongRun() {
     this.state.longRunStartedAt = null;
     this.state.longRunDeadlineAt = null;

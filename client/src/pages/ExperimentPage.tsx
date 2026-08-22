@@ -441,6 +441,10 @@ export default function ExperimentPage() {
     },
     onError: (e) => { toast.error(e.message); setConfirmStart(false); },
   });
+  const recover30Days = trpc.experiment.recover30Days.useMutation({
+    onSuccess: (d) => { toast.success(`Slots recuperados — Ciclo #${d.cycleId} · 20 slots reenviados ao bot.`); refetch(); },
+    onError: (e) => toast.error(`Recuperação falhou: ${e.message}`),
+  });
   const stop30Days = trpc.experiment.stop30Days.useMutation({
     onSuccess: () => { toast.success("Experimento 30 dias encerrado."); refetch(); },
     onError: (e) => toast.error(e.message),
@@ -581,6 +585,15 @@ export default function ExperimentPage() {
 
               {/* Controls */}
               <div className="flex gap-2">
+                {isLongRun && isRunning && botSlots.length === 0 && (
+                  <Button
+                    size="sm" variant="outline" className="gap-1.5 text-xs border-amber-400/40 text-amber-400 hover:bg-amber-400/10"
+                    onClick={() => recover30Days.mutate()} disabled={recover30Days.isPending}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                    {recover30Days.isPending ? "Recuperando…" : "Recuperar Slots"}
+                  </Button>
+                )}
                 {isRunning && isLongRun ? (
                   <Button
                     size="sm" variant="destructive" className="gap-1.5 text-xs"
@@ -616,7 +629,18 @@ export default function ExperimentPage() {
               </div>
             </div>
 
-            {/* Overall progress */}
+            {/* Bot restart warning */}
+            {isLongRun && isRunning && botSlots.length === 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-400/[.06] px-3 py-2 text-xs text-amber-300">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  O bot foi reiniciado e perdeu os slots em memória. Os dados históricos estão preservados no banco.
+                  Clique em <strong>Recuperar Slots</strong> para reenviar as 20 configurações ao bot sem zerar o saldo.
+                </span>
+              </div>
+            )}
+
+          {/* Overall progress */}
             <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
               <div className="rounded-lg bg-white/[.03] p-3 text-center">
                 <p className="text-sm font-bold tabular-nums text-foreground">{displaySlots.length}</p>

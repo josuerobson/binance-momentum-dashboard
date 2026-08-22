@@ -165,4 +165,14 @@ export const experimentRouter = router({
     const result = await orchestrator.stopCycle();
     return { ok: true, cycle: result };
   }),
+
+  // Re-sends 20 slot configs to bot after bot restart without resetting balance/timestamps
+  recover30Days: protectedProcedure.mutation(async () => {
+    requireBot();
+    try {
+      return await orchestrator.recoverLongRun(MATH_SLOTS);
+    } catch (e) {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
+    }
+  }),
 });
