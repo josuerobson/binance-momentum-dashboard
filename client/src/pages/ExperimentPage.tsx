@@ -406,6 +406,8 @@ export default function ExperimentPage() {
   const [groupFilter, setGroupFilter] = useState<GroupFilter>("all");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [confirmStart, setConfirmStart] = useState(false);
+  const [aiReport, setAiReport] = useState<Record<string, unknown> | null>(null);
+  const [aiReportMeta, setAiReportMeta] = useState<{ provider: string; slotsAnalyzed: number; paperTrades: number; analyzedAt: number } | null>(null);
 
   // Cached snapshot (localStorage fallback if bot is unreachable)
   const [cache, setCache] = useState<CachedSnapshot | null>(() => {
@@ -444,6 +446,14 @@ export default function ExperimentPage() {
   const recover30Days = trpc.experiment.recover30Days.useMutation({
     onSuccess: (d) => { toast.success(`Slots recuperados — Ciclo #${d.cycleId} · 20 slots reenviados ao bot.`); refetch(); },
     onError: (e) => toast.error(`Recuperação falhou: ${e.message}`),
+  });
+  const compareWithPaper = trpc.experiment.compareWithPaper.useMutation({
+    onSuccess: (d) => {
+      setAiReport(d.analysis as Record<string, unknown>);
+      setAiReportMeta(d.meta);
+      toast.success(`Análise concluída por ${d.meta.provider}.`);
+    },
+    onError: (e) => toast.error(`Análise falhou: ${e.message}`),
   });
   const stop30Days = trpc.experiment.stop30Days.useMutation({
     onSuccess: () => { toast.success("Experimento 30 dias encerrado."); refetch(); },
@@ -802,6 +812,165 @@ export default function ExperimentPage() {
               </div>
             </div>
           )}
+          {/* ── AI Comparison Analysis ──────────────────────────────────────── */}
+          <div className="cyber-surface p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-[#00ff88]" />
+                <p className="text-sm font-semibold text-foreground">Análise IA: Experimento vs Paper Trading</p>
+              </div>
+              <Button
+                size="sm"
+                className="gap-1.5 bg-[#00ff88] text-black text-xs hover:bg-[#00ff88]/90"
+                onClick={() => compareWithPaper.mutate()}
+                disabled={compareWithPaper.isPending}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                {compareWithPaper.isPending ? "Analisando…" : "Analisar agora"}
+              </Button>
+            </div>
+
+            {compareWithPaper.isPending && (
+              <div className="flex items-center gap-2 py-6 justify-center text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                IA comparando os 20 slots com o paper trading…
+              </div>
+            )}
+
+            {!aiReport && !compareWithPaper.isPending && (
+              <p className="text-xs text-muted-foreground py-4 text-center">
+                Clique em "Analisar agora" para que a IA compare os resultados dos 20 slots com o motor de paper trading principal e recomende a melhor configuração.
+              </p>
+            )}
+
+            {aiReport && aiReportMeta && (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground border-b border-white/[.07] pb-3">
+                  <span>Provedor: <span className="text-foreground font-medium">{aiReportMeta.provider}</span></span>
+                  <span>Slots analisados: <span className="text-foreground font-medium">{aiReportMeta.slotsAnalyzed}</span></span>
+                  <span>Trades paper: <span className="text-foreground font-medium">{aiReportMeta.paperTrades}</span></span>
+                  <span>Gerado: <span className="text-foreground font-medium">{new Date(aiReportMeta.analyzedAt).toLocaleTimeString("pt-BR")}</span></span>
+                </div>
+
+                {/* Summary */}
+                {aiReport.summary && (
+                  <div className="rounded-lg bg-white/[.03] p-3">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Resumo executivo</p>
+                    <p className="text-sm text-foreground">{String(aiReport.summary)}</p>
+                  </div>
+                )}
+
+                {/* Winner slot */}
+                {aiReport.winner_slot && (
+                  <div className="flex items-center gap-3 rounded-lg border border-[#00ff88]/30 bg-[#00ff88]/5 p-3">
+                    <Trophy className="h-5 w-5 text-amber-400 shrink-0" />
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-[#00ff88]">Slot vencedor</p>
+                      <p className="text-sm font-bold text-foreground">{String(aiReport.winner_slot)}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Paper vs Experiment */}
+                {aiReport.paper_vs_experiment && (
+                  <div className="rounded-lg bg-white/[.03] p-3">
+                    <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Paper vs Experimento</p>
+                    <p className="text-xs text-foreground/80">{String(aiReport.paper_vs_experiment)}</p>
+                  </div>
+                )}
+
+                {/* Top 3 + Worst 3 */}
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {Array.isArray(aiReport.top_3) && aiReport.top_3.length > 0 && (
+                    <div className="rounded-lg bg-[#00ff88]/5 border border-[#00ff88]/20 p-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-[#00ff88]">Top 3 Slots</p>
+                      <div className="space-y-2">
+                        {(aiReport.top_3 as Array<{ slot: string; reason: string }>).map((item, i) => (
+                          <div key={i}>
+                            <p className="text-xs font-semibold text-foreground">{i + 1}. {item.slot}</p>
+                            <p className="text-[11px] text-muted-foreground">{item.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {Array.isArray(aiReport.worst_3) && aiReport.worst_3.length > 0 && (
+                    <div className="rounded-lg bg-rose-500/5 border border-rose-500/20 p-3">
+                      <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-rose-400">Piores 3 Slots</p>
+                      <div className="space-y-2">
+                        {(aiReport.worst_3 as Array<{ slot: string; reason: string }>).map((item, i) => (
+                          <div key={i}>
+                            <p className="text-xs font-semibold text-foreground">{i + 1}. {item.slot}</p>
+                            <p className="text-[11px] text-muted-foreground">{item.reason}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Recommendation */}
+                {aiReport.recommendation && (
+                  <div className={`rounded-lg border p-3 ${
+                    aiReport.recommendation === "apply_winner"
+                      ? "border-[#00ff88]/40 bg-[#00ff88]/5"
+                      : aiReport.recommendation === "stop_experiment"
+                      ? "border-rose-500/40 bg-rose-500/5"
+                      : "border-amber-400/40 bg-amber-400/5"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle2 className={`h-4 w-4 ${
+                        aiReport.recommendation === "apply_winner" ? "text-[#00ff88]"
+                        : aiReport.recommendation === "stop_experiment" ? "text-rose-400"
+                        : "text-amber-400"
+                      }`} />
+                      <p className="text-xs font-bold uppercase tracking-widest">
+                        {{
+                          apply_winner: "Aplicar slot vencedor",
+                          wait_more_data: "Aguardar mais dados",
+                          keep_current: "Manter configuração atual",
+                          stop_experiment: "Encerrar experimento",
+                        }[String(aiReport.recommendation)] ?? String(aiReport.recommendation)}
+                      </p>
+                    </div>
+                    {aiReport.recommendation_reason && (
+                      <p className="text-xs text-foreground/80">{String(aiReport.recommendation_reason)}</p>
+                    )}
+                  </div>
+                )}
+
+                {/* Key insights */}
+                {Array.isArray(aiReport.key_insights) && aiReport.key_insights.length > 0 && (
+                  <div className="rounded-lg bg-white/[.03] p-3">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Insights-chave</p>
+                    <ul className="space-y-1.5">
+                      {(aiReport.key_insights as string[]).map((insight, i) => (
+                        <li key={i} className="flex items-start gap-2 text-xs text-foreground/80">
+                          <span className="mt-0.5 text-[#00ff88] shrink-0">•</span>
+                          {insight}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Config to apply */}
+                {aiReport.config_to_apply && typeof aiReport.config_to_apply === "object" && (
+                  <div className="rounded-lg bg-white/[.03] border border-white/[.07] p-3">
+                    <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Configuração sugerida para aplicar</p>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
+                      {Object.entries(aiReport.config_to_apply as Record<string, unknown>).map(([k, v]) => (
+                        <div key={k} className="flex flex-col">
+                          <span className="text-[10px] text-muted-foreground">{k.replace(/_/g, " ")}</span>
+                          <span className="text-sm font-bold tabular-nums text-[#00ff88]">{String(v)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

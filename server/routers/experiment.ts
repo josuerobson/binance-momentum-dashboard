@@ -4,6 +4,7 @@ import { ENV } from "../_core/env";
 import { protectedProcedure, router } from "../_core/trpc";
 import { orchestrator, ExperimentStatus } from "../services/experimentOrchestrator";
 import type { SlotConfig } from "../services/aiAdvisors";
+import { callProvider, getAssignedProviders } from "../services/aiRegistry";
 
 function requireBot() {
   if (!ENV.botApiBaseUrl || !ENV.dashboardApiKey) {
@@ -174,5 +175,120 @@ export const experimentRouter = router({
     } catch (e) {
       throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: String(e) });
     }
+  }),
+
+  // AI analysis comparing 20 experiment slots vs paper trading main engine
+  compareWithPaper: protectedProcedure.mutation(async () => {
+    requireBot();
+
+    // Fetch both data sources in parallel
+    const [expStatus, paperRes] = await Promise.allSettled([
+      fetchBot<ExperimentStatus>("/api/experiment/status"),
+      fetchBot<{ trades: unknown[]; paper_balance: number; win_rate_pct: number; total_pnl_usdt: number }>("/api/paper/history"),
+    ]);
+
+    const expSlots = expStatus.status === "fulfilled" ? (expStatus.value.slots ?? []) : [];
+    const paper = paperRes.status === "fulfilled" ? paperRes.value : null;
+    const paperTrades = (paper?.trades ?? []) as Array<{
+      symbol: string; pnl_usdt: number; pnl_pct: number; exit_reason: string; closed_at: number;
+    }>;
+
+    if (expSlots.length === 0 && !paper) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Sem dados do experimento ou do paper trading para analisar." });
+    }
+
+    // Build paper trading summary
+    const paperWins = paperTrades.filter(t => t.pnl_usdt > 0).length;
+    const paperTotal = paperTrades.length;
+    const paperWinRate = paperTotal > 0 ? (paperWins / paperTotal) * 100 : 0;
+    const paperPnlUsdt = paperTrades.reduce((s, t) => s + t.pnl_usdt, 0);
+    const paperBalance = paper?.paper_balance ?? (10000 + paperPnlUsdt);
+
+    // Build slots summary (sorted by fitness)
+    const slotsSummary = [...expSlots]
+      .sort((a, b) => b.fitness_score - a.fitness_score)
+      .map(s => ({
+        label: s.label,
+        balance: s.paper_balance,
+        initial: s.initial_balance,
+        pnl_usdt: s.paper_balance - s.initial_balance,
+        pnl_pct: s.total_pnl_pct,
+        win_rate: (s.win_rate * 100).toFixed(1) + "%",
+        trades: s.trade_count,
+        fitness: s.fitness_score.toFixed(3),
+        config_highlights: {
+          window: s.config?.momentum_window_secs,
+          trigger_pct: s.config?.momentum_trigger_pct,
+          sl: s.config?.stop_loss_pct,
+          tp: s.config?.take_profit_pct,
+        },
+      }));
+
+    const prompt = `Você é um analista quantitativo especializado em crypto trading. Analise os dados abaixo e gere um relatório comparativo em português.
+
+## Paper Trading Principal (motor de produção)
+- Saldo atual: ${paperBalance.toFixed(2)} USDT (inicial: 10000)
+- P&L total: ${paperPnlUsdt >= 0 ? "+" : ""}${paperPnlUsdt.toFixed(2)} USDT (${((paperPnlUsdt / 10000) * 100).toFixed(2)}%)
+- Win rate: ${paperWinRate.toFixed(1)}%
+- Total trades: ${paperTotal}
+- Últimos 10 trades: ${JSON.stringify(paperTrades.slice(0, 10).map(t => ({ symbol: t.symbol, pnl: t.pnl_usdt.toFixed(2), exit: t.exit_reason })))}
+
+## Experimento 30 Dias — 20 Slots Matemáticos
+Total de slots: ${expSlots.length}
+Total trades no experimento: ${expSlots.reduce((s, sl) => s + sl.trade_count, 0)}
+
+### Rankings por fitness:
+${slotsSummary.slice(0, 20).map((s, i) => `${i + 1}. **${s.label}** | Balance: ${s.balance.toFixed(0)} USDT | P&L: ${s.pnl_usdt >= 0 ? "+" : ""}${s.pnl_usdt.toFixed(2)} USDT (${s.pnl_pct >= 0 ? "+" : ""}${typeof s.pnl_pct === "number" ? s.pnl_pct.toFixed(2) : s.pnl_pct}%) | WR: ${s.win_rate} | Trades: ${s.trades} | Fitness: ${s.fitness} | Config: W${s.config_highlights.window}s M${s.config_highlights.trigger_pct}% SL${s.config_highlights.sl}% TP${s.config_highlights.tp}%`).join("\n")}
+
+## Sua análise deve responder:
+1. Quais slots do experimento superam o paper trading principal? Por quê?
+2. Qual configuração vencedora deve ser aplicada ao motor de produção?
+3. O que explica a diferença de performance entre slots com parâmetros similares?
+4. Qual grupo (A/B/C) apresenta melhor resultado e por quê?
+5. Recomendação final: manter configuração atual, aplicar melhor slot, ou aguardar mais dados?
+
+Responda em JSON com este formato exato:
+{
+  "summary": "resumo executivo em 2-3 frases",
+  "winner_slot": "nome do slot vencedor ou null",
+  "paper_vs_experiment": "comparação direta em 2-3 frases",
+  "top_3": [{"slot": "nome", "reason": "por que é promissor"}],
+  "worst_3": [{"slot": "nome", "reason": "por que está mal"}],
+  "recommendation": "apply_winner | wait_more_data | keep_current | stop_experiment",
+  "recommendation_reason": "justificativa da recomendação",
+  "config_to_apply": {"momentum_window_secs": 0, "momentum_trigger_pct": 0, "stop_loss_pct": 0, "take_profit_pct": 0} | null,
+  "key_insights": ["insight 1", "insight 2", "insight 3"]
+}`;
+
+    let providers: Awaited<ReturnType<typeof getAssignedProviders>> = [];
+    try { providers = await getAssignedProviders("experiment_advisor"); } catch { /* ok */ }
+    if (providers.length === 0) {
+      try { providers = await getAssignedProviders("advisor"); } catch { /* ok */ }
+    }
+    if (providers.length === 0) {
+      throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Nenhum provedor de IA configurado. Configure em Integração IA." });
+    }
+
+    const provider = providers[0]!;
+    const raw = await callProvider(provider, [{ role: "user", content: prompt }], undefined, 4096);
+
+    // Extract JSON from response
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "IA não retornou JSON válido." });
+
+    let parsed: Record<string, unknown>;
+    try { parsed = JSON.parse(match[0]); } catch {
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "JSON da IA não pôde ser parseado." });
+    }
+
+    return {
+      analysis: parsed,
+      meta: {
+        provider: provider.name,
+        slotsAnalyzed: expSlots.length,
+        paperTrades: paperTotal,
+        analyzedAt: Date.now(),
+      },
+    };
   }),
 });

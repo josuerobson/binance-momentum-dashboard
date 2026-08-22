@@ -7,6 +7,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { orchestrator } from "../services/experimentOrchestrator";
 
 async function initDb() {
   const url = process.env.DATABASE_URL;
@@ -76,6 +77,12 @@ async function startServer() {
   } catch (err) {
     console.error("[init-db] failed:", err);
     // Continue booting — the server can still serve the UI even without DB
+  }
+  try {
+    await orchestrator.init();
+    console.log("[orchestrator] state restored from DB");
+  } catch (err) {
+    console.error("[orchestrator] init failed:", err);
   }
   const app = express();
   const server = createServer(app);

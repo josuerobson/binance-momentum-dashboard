@@ -2,6 +2,7 @@ import { ENV } from "../_core/env";
 import { ExperimentCycleSummary, SlotConfig } from "./aiAdvisors";
 import { AIProvider, getAssignedProviders, callProvider } from "./aiRegistry";
 import { getPrompt } from "./promptRegistry";
+import { loadOrchestratorState, saveOrchestratorState, loadCycleHistory, appendCycleHistory } from "./experimentStateDb";
 
 export type SlotStatus = {
   id: number;
@@ -118,11 +119,46 @@ class ExperimentOrchestrator {
     maxDurationMs: 25 * 60 * 1000,
   };
 
+  private async persist() {
+    await saveOrchestratorState({
+      running: this.state.running,
+      phase: this.state.phase,
+      currentCycleId: this.state.currentCycleId,
+      cycleStartedAt: this.state.cycleStartedAt,
+      longRunStartedAt: this.state.longRunStartedAt,
+      longRunDeadlineAt: this.state.longRunDeadlineAt,
+      minTradesPerSlot: this.state.minTradesPerSlot,
+      maxDurationMs: this.state.maxDurationMs,
+      lastError: this.state.lastError,
+    });
+  }
+
+  async init() {
+    try {
+      const [persisted, history] = await Promise.all([loadOrchestratorState(), loadCycleHistory()]);
+      if (persisted) {
+        this.state.running = persisted.running;
+        this.state.phase = persisted.phase as OrchestratorState["phase"];
+        this.state.currentCycleId = persisted.currentCycleId;
+        this.state.cycleStartedAt = persisted.cycleStartedAt;
+        this.state.longRunStartedAt = persisted.longRunStartedAt;
+        this.state.longRunDeadlineAt = persisted.longRunDeadlineAt;
+        this.state.minTradesPerSlot = persisted.minTradesPerSlot;
+        this.state.maxDurationMs = persisted.maxDurationMs;
+        this.state.lastError = persisted.lastError;
+      }
+      if (history.length > 0) this.state.history = history;
+    } catch (e) {
+      console.error("[orchestrator] init failed, using defaults:", e);
+    }
+  }
+
   getState(): OrchestratorState { return { ...this.state }; }
 
   configure(minTrades?: number, maxDurationMin?: number) {
     if (minTrades) this.state.minTradesPerSlot = Math.max(3, minTrades);
     if (maxDurationMin) this.state.maxDurationMs = Math.max(5, maxDurationMin) * 60 * 1000;
+    void this.persist();
   }
 
   async getSuggestions(): Promise<{ label: string; provider: string; config: SlotConfig }[]> {
@@ -174,6 +210,7 @@ class ExperimentOrchestrator {
     this.state.currentCycleId = result.cycle_id;
     this.state.cycleStartedAt = Date.now();
     this.state.running = true;
+    void this.persist();
 
     return { cycleId: result.cycle_id, slots: suggestions.length };
   }
@@ -201,15 +238,18 @@ class ExperimentOrchestrator {
       };
       this.state.history.push(cycle);
       if (this.state.history.length > 100) this.state.history.shift();
+      void appendCycleHistory(cycle);
 
       this.state.phase = "idle";
       this.state.running = false;
       this.state.cycleStartedAt = null;
+      void this.persist();
       return cycle;
     } catch (e) {
       this.state.lastError = String(e);
       this.state.phase = "idle";
       this.state.running = false;
+      void this.persist();
       return null;
     }
   }
@@ -265,6 +305,7 @@ class ExperimentOrchestrator {
     this.state.cycleStartedAt = now;
     this.state.running = true;
     this.state.phase = "experiment_running";
+    void this.persist();
     return { cycleId: result.cycle_id };
   }
 
@@ -279,12 +320,14 @@ class ExperimentOrchestrator {
     this.state.cycleStartedAt = this.state.longRunStartedAt ?? Date.now();
     this.state.running = true;
     this.state.phase = "experiment_running";
+    void this.persist();
     return { cycleId: result.cycle_id };
   }
 
   clearLongRun() {
     this.state.longRunStartedAt = null;
     this.state.longRunDeadlineAt = null;
+    void this.persist();
   }
 
   getBestConfig(): { config: SlotConfig; fitness: number; provider: string } | null {
