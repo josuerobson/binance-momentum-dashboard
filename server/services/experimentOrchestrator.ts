@@ -294,9 +294,14 @@ class ExperimentOrchestrator {
       method: "POST",
       body: JSON.stringify({ balance: 10000 }),
     });
+    // Strip `reasoning` — not a Rust RuntimeConfig field, saves ~800 bytes keeping payload under 8KB TCP buffer
+    const botSlots = slots.map(s => {
+      const { reasoning: _r, ...cfg } = s.config as SlotConfig & { reasoning?: string };
+      return { id: s.id, label: s.label, ai_provider: s.ai_provider, config: cfg };
+    });
     const result = await fetchBot<{ cycle_id: number }>("/api/experiment/start", {
       method: "POST",
-      body: JSON.stringify({ balance: 10000, slots }),
+      body: JSON.stringify({ balance: 10000, slots: botSlots }),
     });
     const now = Date.now();
     this.state.longRunStartedAt = now;
@@ -312,9 +317,13 @@ class ExperimentOrchestrator {
   async recoverLongRun(slots: { id: number; label: string; ai_provider: string; config: SlotConfig }[]): Promise<{ cycleId: number }> {
     // Re-sends slot configs to the bot after a bot restart without resetting balance or timestamps.
     this.state.lastError = null;
+    const botSlots = slots.map(s => {
+      const { reasoning: _r, ...cfg } = s.config as SlotConfig & { reasoning?: string };
+      return { id: s.id, label: s.label, ai_provider: s.ai_provider, config: cfg };
+    });
     const result = await fetchBot<{ cycle_id: number }>("/api/experiment/start", {
       method: "POST",
-      body: JSON.stringify({ balance: 10000, slots }),
+      body: JSON.stringify({ balance: 10000, slots: botSlots }),
     });
     this.state.currentCycleId = result.cycle_id;
     this.state.cycleStartedAt = this.state.longRunStartedAt ?? Date.now();
